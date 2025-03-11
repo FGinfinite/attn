@@ -12,16 +12,18 @@ from pathlib import Path
 from datetime import datetime
 
 # 添加项目根目录到系统路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.insert(0, project_root)
 
-from config import MODEL_CONFIG, ATTENTION_CONFIG, EXPERIMENT_CONFIG, LOGGING_CONFIG
+from config import load_config
 from src.utils.logger import setup_logger
 
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="自动化测试脚本")
     
-    parser.add_argument("--model_path", type=str, default=MODEL_CONFIG["model_name_or_path"],
+    parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct",
                         help="模型路径或名称")
     parser.add_argument("--quant_types", type=str, default="none,awq,gptq",
                         help="量化方式列表，用逗号分隔")
@@ -33,25 +35,20 @@ def parse_args():
                         help="输入长度列表，用逗号分隔")
     parser.add_argument("--output_lengths", type=str, default="128",
                         help="输出长度列表，用逗号分隔")
-    parser.add_argument("--use_vllm", action="store_true",
-                        help="是否使用vLLM加速")
-    parser.add_argument("--monitor", action="store_true",
-                        help="是否监控硬件使用情况")
-    parser.add_argument("--save_results", action="store_true",
-                        help="是否保存结果")
-    parser.add_argument("--results_dir", type=str, default=str(EXPERIMENT_CONFIG["results_dir"]),
-                        help="结果保存目录")
+    parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    parser.add_argument("--save_results", action="store_true", help="是否保存结果")
+    parser.add_argument("--results_dir", type=str, default="data/results", help="结果保存目录")
     
     return parser.parse_args()
 
 def run_command(command):
     """运行命令"""
-    print(f"运行命令: {command}")
+    print(f"运行命令: {' '.join(command)}")
     
     try:
         process = subprocess.Popen(
             command,
-            shell=True,
+            shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True
@@ -74,32 +71,26 @@ def main():
     """主函数"""
     args = parse_args()
     
+    # 加载配置
+    config = load_config()
+    
     # 设置日志
-    os.makedirs(LOGGING_CONFIG["log_dir"], exist_ok=True)
     logger = setup_logger(
-        name="run_all_tests",
-        log_dir=LOGGING_CONFIG["log_dir"],
-        log_level=LOGGING_CONFIG["log_level"],
-        log_to_file=LOGGING_CONFIG["log_to_file"],
-        log_to_console=LOGGING_CONFIG["log_to_console"]
+        name="auto_test",
+        log_dir=config["logging"]["log_dir"],
+        log_level="INFO",
+        log_to_file=True,
+        log_to_console=True
     )
     
-    logger.info(f"开始自动化测试")
+    logger.info("开始自动化测试")
     
     # 解析参数
     quant_types = args.quant_types.split(",")
     attention_types = args.attention_types.split(",")
-    batch_sizes = [int(x) for x in args.batch_sizes.split(",")]
-    input_lengths = [int(x) for x in args.input_lengths.split(",")]
-    output_lengths = [int(x) for x in args.output_lengths.split(",")]
-    
-    logger.info(f"模型路径: {args.model_path}")
-    logger.info(f"量化方式: {quant_types}")
-    logger.info(f"注意力机制: {attention_types}")
-    logger.info(f"批处理大小: {batch_sizes}")
-    logger.info(f"输入长度: {input_lengths}")
-    logger.info(f"输出长度: {output_lengths}")
-    logger.info(f"使用vLLM: {args.use_vllm}")
+    batch_sizes = [int(bs) for bs in args.batch_sizes.split(",")]
+    input_lengths = [int(il) for il in args.input_lengths.split(",")]
+    output_lengths = [int(ol) for ol in args.output_lengths.split(",")]
     
     # 创建结果目录
     results_dir = Path(args.results_dir)
@@ -120,45 +111,53 @@ def main():
     
     # 运行测试
     total_tests = len(quant_types) * len(attention_types) * len(batch_sizes) * len(input_lengths) * len(output_lengths)
-    completed_tests = 0
-    
     logger.info(f"总测试数量: {total_tests}")
+    
+    successful_tests = 0
+    test_count = 0
     
     for quant in quant_types:
         for attention in attention_types:
             for batch_size in batch_sizes:
                 for input_length in input_lengths:
                     for output_length in output_lengths:
+                        test_count += 1
+                        test_config = f"quant={quant}, attention={attention}, batch_size={batch_size}, input_length={input_length}, output_length={output_length}"
+                        logger.info(f"运行测试 [{test_count}/{total_tests}]: {test_config}")
+                        
                         # 构建命令
-                        if args.use_vllm:
-                            command = f"python test_vllm.py --model_path {args.model_path} --quant {quant} --prompt \"请介绍一下自己\" --max_tokens {output_length}"
-                            
-                            if args.monitor:
-                                command += " --monitor"
-                        else:
-                            command = f"python run_benchmark.py --model_path {args.model_path} --quant {quant} --attention {attention} --batch_size {batch_size} --input_length {input_length} --output_length {output_length}"
-                            
-                            if args.monitor:
-                                command += " --monitor"
-                            
-                            if args.save_results:
-                                command += " --save_results"
-                            
-                            if args.results_dir:
-                                command += f" --results_dir {args.results_dir}"
+                        command = [
+                            "python", 
+                            os.path.join(project_root, "scripts/benchmark/run_benchmark.py"),
+                            "--model_path", args.model_path,
+                            "--quant", quant,
+                            "--attention", attention,
+                            "--batch_size", str(batch_size),
+                            "--input_length", str(input_length),
+                            "--output_length", str(output_length)
+                        ]
+                        
+                        if args.monitor:
+                            command.append("--monitor")
+                        
+                        if args.save_results:
+                            command.append("--save_results")
                         
                         # 记录测试信息
-                        test_info = f"测试 {completed_tests + 1}/{total_tests}: quant={quant}, attention={attention}, batch_size={batch_size}, input_length={input_length}, output_length={output_length}"
+                        test_info = f"测试 [{test_count}/{total_tests}]: {test_config}"
                         logger.info(test_info)
                         
                         with open(test_record_file, "a", encoding='utf-8') as f:
                             f.write(f"{test_info}\n")
-                            f.write(f"命令: {command}\n")
+                            f.write(f"命令: {' '.join(command)}\n")
                         
                         # 运行命令
                         start_time = time.time()
                         success = run_command(command)
                         end_time = time.time()
+                        
+                        if success:
+                            successful_tests += 1
                         
                         # 记录结果
                         elapsed_time = end_time - start_time
@@ -167,22 +166,22 @@ def main():
                         with open(test_record_file, "a", encoding='utf-8') as f:
                             f.write(f"结果: {result}\n")
                             f.write(f"耗时: {elapsed_time:.2f}秒\n")
-                            f.write(f"\n")
+                            f.write("-" * 50 + "\n\n")
                         
-                        completed_tests += 1
-                        logger.info(f"完成测试 {completed_tests}/{total_tests}")
+                        logger.info(f"测试结果: {result}, 耗时: {elapsed_time:.2f}秒")
                         
-                        # 等待一段时间，避免GPU过热
+                        # 等待一段时间，让GPU冷却
                         time.sleep(5)
     
     # 记录测试完成
     with open(test_record_file, "a", encoding='utf-8') as f:
         f.write(f"\n所有测试完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"总测试数: {total_tests}\n")
-        f.write(f"成功: {total_tests - sum(not success for success in [run_command(command) for quant in quant_types for attention in attention_types for batch_size in batch_sizes for input_length in input_lengths for output_length in output_lengths])}\n")
-        f.write(f"失败: {sum(not success for success in [run_command(command) for quant in quant_types for attention in attention_types for batch_size in batch_sizes for input_length in input_lengths for output_length in output_lengths])}\n")
+        f.write(f"成功: {successful_tests}\n")
+        f.write(f"失败: {total_tests - successful_tests}\n")
     
-    logger.info(f"自动化测试完成，总测试数量: {total_tests}，测试记录已保存到: {test_record_file}")
+    logger.info(f"自动化测试完成，总测试数量: {total_tests}，成功: {successful_tests}，失败: {total_tests - successful_tests}")
+    logger.info(f"测试记录已保存到: {test_record_file}")
 
 if __name__ == "__main__":
     main() 

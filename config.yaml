@@ -1,0 +1,54 @@
+# 模型配置
+model:
+  default_model_path: "Qwen/Qwen2.5-3B-Instruct"
+  supported_models:
+    - "Qwen/Qwen2.5-3B-Instruct"
+    - "Qwen/Qwen2.5-7B-Instruct"
+
+# 量化配置
+quantization:
+  supported_types:
+    - "none"
+    - "awq"
+    - "gptq"
+  awq:
+    bits: 4
+    group_size: 128
+    zero_point: true
+    version: "gemm"
+  gptq:
+    bits: 4
+    group_size: 128
+    desc_act: false
+
+# 注意力机制配置
+attention:
+  supported_types:
+    - "standard"
+    - "sparse"
+    - "linear"
+  sparse:
+    default_sparsity: 0.8
+    sparsity_range:
+      - 0.5
+      - 0.9
+  linear:
+    default_kernel: "elu"
+    supported_kernels:
+      - "elu"
+      - "relu"
+      - "gelu"
+
+# 基准测试配置
+benchmark:
+  default_batch_size: 1
+  default_input_length: 512
+  default_output_length: 128
+  default_num_runs: 5
+  default_warmup_runs: 2
+
+# 日志配置
+logging:
+  log_dir: "logs"
+  results_dir: "data/results"
+  analysis_dir: "analysis" 

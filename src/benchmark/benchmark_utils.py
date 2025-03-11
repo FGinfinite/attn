@@ -34,7 +34,16 @@ class BenchmarkResult:
     
     def set_config(self, config):
         """设置配置"""
-        self.config = config
+        self.config = config.copy()  # 使用copy确保配置不会被修改
+        # 将配置信息添加到摘要中
+        self.summary.update({
+            "model_path": config.get("model_path", ""),
+            "quantization": config.get("quant", "none"),
+            "attention_type": config.get("attention", "standard"),
+            "batch_size": config.get("batch_size", 1),
+            "input_length": config.get("input_length", 512),
+            "output_length": config.get("output_length", 128)
+        })
     
     def compute_summary(self):
         """计算摘要"""
@@ -52,7 +61,11 @@ class BenchmarkResult:
         return {
             "metrics": self.metrics,
             "config": self.config,
-            "summary": self.summary
+            "summary": self.summary,
+            "model_info": {
+                "quantization": self.config.get("model_config", {}).get("quantization", "none"),
+                "attention_type": self.config.get("model_config", {}).get("attention_type", "standard")
+            }
         }
 
 def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, warmup_runs=2):

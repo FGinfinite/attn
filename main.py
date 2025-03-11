@@ -1,5 +1,7 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
-注意力机制对比实验项目主入口文件
+注意力机制对比实验项目主入口
 """
 
 import os
@@ -11,37 +13,73 @@ from pathlib import Path
 # 添加项目根目录到系统路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import MODEL_CONFIG, QUANTIZATION_CONFIG, ATTENTION_CONFIG, VLLM_CONFIG, LOGGING_CONFIG
+from config import load_config
 from src.utils.logger import setup_logger
 
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="注意力机制对比实验")
     
-    # 模型相关参数
-    parser.add_argument("--model_path", type=str, default=MODEL_CONFIG["model_name_or_path"],
-                        help="模型路径或名称")
-    parser.add_argument("--max_seq_len", type=int, default=MODEL_CONFIG["max_seq_len"],
-                        help="最大序列长度")
+    # 子命令解析器
+    subparsers = parser.add_subparsers(dest="command", help="命令")
     
-    # 量化相关参数
-    parser.add_argument("--quant", type=str, default="none", choices=["none", "awq", "gptq"],
-                        help="量化方式：none(FP16), awq, gptq")
+    # 验证模型命令
+    verify_parser = subparsers.add_parser("verify", help="验证模型")
+    verify_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    verify_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
-    # 注意力机制相关参数
-    parser.add_argument("--attention", type=str, default="standard", 
-                        choices=list(ATTENTION_CONFIG.keys()),
-                        help="注意力机制类型")
+    # 量化模型命令
+    quant_parser = subparsers.add_parser("quantize", help="量化模型")
+    quant_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    quant_parser.add_argument("--quant", type=str, choices=["awq", "gptq"], default="awq", help="量化方法")
+    quant_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
-    # vLLM相关参数
-    parser.add_argument("--use_vllm", action="store_true", help="是否使用vLLM加速")
-    parser.add_argument("--vllm_tensor_parallel", type=int, 
-                        default=VLLM_CONFIG["tensor_parallel_size"],
-                        help="vLLM张量并行大小")
+    # 测试注意力机制命令
+    attn_parser = subparsers.add_parser("test_attention", help="测试注意力机制")
+    attn_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear"], default="standard", help="注意力机制类型")
+    attn_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
+    attn_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
+    attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
-    # 实验相关参数
-    parser.add_argument("--run_benchmark", action="store_true", help="是否运行基准测试")
-    parser.add_argument("--save_results", action="store_true", help="是否保存结果")
+    # 测试vLLM命令
+    vllm_parser = subparsers.add_parser("test_vllm", help="测试vLLM加速")
+    vllm_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
+    vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    
+    # 运行基准测试命令
+    bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
+    bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    bench_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
+    bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear"], default="standard", help="注意力机制类型")
+    bench_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
+    bench_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
+    bench_parser.add_argument("--output_length", type=int, default=128, help="输出长度")
+    bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
+    
+    # 运行自动化测试命令
+    auto_parser = subparsers.add_parser("auto_test", help="运行自动化测试")
+    auto_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    auto_parser.add_argument("--quant_types", type=str, default="none,awq,gptq", help="量化方法列表，用逗号分隔")
+    auto_parser.add_argument("--attention_types", type=str, default="standard,sparse,linear", help="注意力机制类型列表，用逗号分隔")
+    auto_parser.add_argument("--batch_sizes", type=str, default="1", help="批处理大小列表，用逗号分隔")
+    auto_parser.add_argument("--input_lengths", type=str, default="512,1024,2048", help="输入长度列表，用逗号分隔")
+    auto_parser.add_argument("--output_lengths", type=str, default="128", help="输出长度列表，用逗号分隔")
+    auto_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    auto_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
+    auto_parser.add_argument("--results_dir", type=str, default="data/results", help="结果保存目录")
+    
+    # 分析结果命令
+    analyze_parser = subparsers.add_parser("analyze", help="分析结果")
+    analyze_parser.add_argument("--results_dir", type=str, default="data/results", help="结果目录")
+    analyze_parser.add_argument("--output_dir", type=str, default="analysis", help="输出目录")
+    analyze_parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity", help="要分析的指标，用逗号分隔")
+    
+    # 初始化项目命令
+    init_parser = subparsers.add_parser("init", help="初始化项目")
+    init_parser.add_argument("--force", action="store_true", help="强制重新初始化项目")
     
     return parser.parse_args()
 
@@ -49,28 +87,108 @@ def main():
     """主函数"""
     args = parse_args()
     
+    # 加载配置
+    config = load_config()
+    
     # 设置日志
     logger = setup_logger(
         name="attn_experiment",
-        log_dir=LOGGING_CONFIG["log_dir"],
-        log_level=LOGGING_CONFIG["log_level"],
-        log_to_file=LOGGING_CONFIG["log_to_file"],
-        log_to_console=LOGGING_CONFIG["log_to_console"]
+        log_dir=config["logging"]["log_dir"],
+        log_level="INFO",
+        log_to_file=True,
+        log_to_console=True
     )
     
-    logger.info(f"启动注意力机制对比实验")
-    logger.info(f"模型路径: {args.model_path}")
-    logger.info(f"量化方式: {args.quant}")
-    logger.info(f"注意力机制: {args.attention}")
-    logger.info(f"使用vLLM: {args.use_vllm}")
+    logger.info(f"运行命令: {args.command}")
     
-    # TODO: 实现模型加载逻辑
+    # 根据命令调用相应的脚本
+    if args.command == "verify":
+        from scripts.model.verify_model import main as verify_main
+        sys.argv = [sys.argv[0]] + ["--model_path", args.model_path]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        verify_main()
     
-    # TODO: 实现注意力机制替换逻辑
+    elif args.command == "quantize":
+        from scripts.model.quantize_model import main as quantize_main
+        sys.argv = [sys.argv[0]] + ["--model_path", args.model_path, "--quant", args.quant]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        quantize_main()
     
-    # TODO: 实现基准测试逻辑
+    elif args.command == "test_attention":
+        from scripts.model.test_attention import main as test_attention_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--attention", args.attention,
+            "--sparsity", str(args.sparsity),
+            "--kernel_function", args.kernel_function
+        ]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        test_attention_main()
     
-    logger.info(f"实验完成")
+    elif args.command == "test_vllm":
+        from scripts.model.test_vllm import main as test_vllm_main
+        sys.argv = [sys.argv[0]] + ["--model_path", args.model_path, "--quant", args.quant]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        test_vllm_main()
+    
+    elif args.command == "benchmark":
+        from scripts.benchmark.run_benchmark import main as benchmark_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--quant", args.quant,
+            "--attention", args.attention,
+            "--batch_size", str(args.batch_size),
+            "--input_length", str(args.input_length),
+            "--output_length", str(args.output_length)
+        ]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        if args.save_results:
+            sys.argv.append("--save_results")
+        benchmark_main()
+    
+    elif args.command == "auto_test":
+        from scripts.benchmark.run_all_tests import main as auto_test_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--quant_types", args.quant_types,
+            "--attention_types", args.attention_types,
+            "--batch_sizes", args.batch_sizes,
+            "--input_lengths", args.input_lengths,
+            "--output_lengths", args.output_lengths,
+            "--results_dir", args.results_dir
+        ]
+        if args.monitor:
+            sys.argv.append("--monitor")
+        if args.save_results:
+            sys.argv.append("--save_results")
+        auto_test_main()
+    
+    elif args.command == "analyze":
+        from scripts.analysis.analyze_results import main as analyze_main
+        sys.argv = [sys.argv[0]] + [
+            "--results_dir", args.results_dir,
+            "--output_dir", args.output_dir,
+            "--metrics", args.metrics
+        ]
+        analyze_main()
+    
+    elif args.command == "init":
+        from init_project import main as init_main
+        sys.argv = [sys.argv[0]]
+        if args.force:
+            sys.argv.append("--force")
+        init_main()
+    
+    else:
+        logger.error(f"未知命令: {args.command}")
+        sys.exit(1)
+    
+    logger.info(f"命令 {args.command} 执行完成")
 
 if __name__ == "__main__":
     main() 

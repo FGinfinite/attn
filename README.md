@@ -7,15 +7,23 @@ This project is based on **Qwen2.5-3B-Instruct** and aims to compare various att
 ```
 .
 ├── config.py                 # Configuration file
+├── config.yaml               # YAML configuration file
 ├── main.py                   # Main entry point
-├── verify_model.py           # Model verification script
-├── quantize_model.py         # Model quantization script
-├── test_attention.py         # Attention mechanism test script
-├── test_vllm.py              # vLLM test script
-├── run_benchmark.py          # Benchmark script
-├── run_all_tests.py          # Automated testing script
-├── analyze_results.py        # Results analysis script
+├── init_project.py           # Project initialization script
 ├── requirements.txt          # Dependencies list
+├── README.md                 # English README
+├── README_CN.md              # Chinese README
+├── scripts/                  # Scripts directory
+│   ├── model/                # Model-related scripts
+│   │   ├── verify_model.py   # Model verification script
+│   │   ├── quantize_model.py # Model quantization script
+│   │   ├── test_attention.py # Attention mechanism test script
+│   │   └── test_vllm.py      # vLLM test script
+│   ├── benchmark/            # Benchmark scripts
+│   │   ├── run_benchmark.py  # Benchmark script
+│   │   └── run_all_tests.py  # Automated testing script
+│   └── analysis/             # Analysis scripts
+│       └── analyze_results.py # Results analysis script
 ├── src/                      # Source code directory
 │   ├── attention/            # Attention mechanism modules
 │   ├── quantization/         # Quantization method modules
@@ -23,7 +31,8 @@ This project is based on **Qwen2.5-3B-Instruct** and aims to compare various att
 │   └── benchmark/            # Benchmark modules
 ├── data/                     # Data directory
 │   └── results/              # Results directory
-└── logs/                     # Logs directory
+├── logs/                     # Logs directory
+└── analysis/                 # Analysis output directory
 ```
 
 ## Installation
@@ -44,62 +53,64 @@ pip install -r requirements.txt
 3. Initialize the project:
 
 ```bash
-python init_project.py
+python main.py init
 ```
 
 ## Usage
 
+The project provides a unified command-line interface through the `main.py` script:
+
 ### 1. Verify Model
 
 ```bash
-python verify_model.py --model_path Qwen/Qwen2.5-3B-Instruct --monitor
+python main.py verify --model_path Qwen/Qwen2.5-3B-Instruct --monitor
 ```
 
 ### 2. Quantize Model
 
 ```bash
 # AWQ quantization
-python quantize_model.py --model_path Qwen/Qwen2.5-3B-Instruct --quant awq --monitor
+python main.py quantize --model_path Qwen/Qwen2.5-3B-Instruct --quant awq --monitor
 
 # GPTQ quantization
-python quantize_model.py --model_path Qwen/Qwen2.5-3B-Instruct --quant gptq --monitor
+python main.py quantize --model_path Qwen/Qwen2.5-3B-Instruct --quant gptq --monitor
 ```
 
 ### 3. Test Attention Mechanisms
 
 ```bash
 # Standard attention
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention standard --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention standard --monitor
 
 # Sparse attention
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention sparse --sparsity 0.8 --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention sparse --sparsity 0.8 --monitor
 
 # Linear attention
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention linear --kernel_function elu --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention linear --kernel_function elu --monitor
 ```
 
 ### 4. Use vLLM Acceleration
 
 ```bash
-python test_vllm.py --model_path Qwen/Qwen2.5-3B-Instruct --quant none --monitor
+python main.py test_vllm --model_path Qwen/Qwen2.5-3B-Instruct --quant none --monitor
 ```
 
 ### 5. Run Benchmark
 
 ```bash
-python run_benchmark.py --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 1 --input_length 512 --output_length 128 --monitor --save_results
+python main.py benchmark --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 1 --input_length 512 --output_length 128 --monitor --save_results
 ```
 
 ### 6. Run Automated Tests
 
 ```bash
-python run_all_tests.py --model_path Qwen/Qwen2.5-3B-Instruct --quant_types none,awq,gptq --attention_types standard,sparse,linear --batch_sizes 1 --input_lengths 512,1024,2048 --output_lengths 128 --monitor --save_results
+python main.py auto_test --model_path Qwen/Qwen2.5-3B-Instruct --quant_types none,awq,gptq --attention_types standard,sparse,linear --batch_sizes 1 --input_lengths 512,1024,2048 --output_lengths 128 --monitor --save_results
 ```
 
 ### 7. Analyze Results
 
 ```bash
-python analyze_results.py --results_dir data/results --output_dir analysis --metrics latency,tokens_per_second,memory_usage,perplexity
+python main.py analyze --results_dir data/results --output_dir analysis --metrics latency,tokens_per_second,memory_usage,perplexity
 ```
 
 ## Notes

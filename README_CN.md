@@ -7,15 +7,23 @@
 ```
 .
 ├── config.py                 # 配置文件
+├── config.yaml               # YAML配置文件
 ├── main.py                   # 主入口文件
-├── verify_model.py           # 模型验证脚本
-├── quantize_model.py         # 量化模型脚本
-├── test_attention.py         # 注意力机制测试脚本
-├── test_vllm.py              # vLLM测试脚本
-├── run_benchmark.py          # 基准测试脚本
-├── run_all_tests.py          # 自动化测试脚本
-├── analyze_results.py        # 结果分析脚本
+├── init_project.py           # 项目初始化脚本
 ├── requirements.txt          # 依赖库列表
+├── README.md                 # 英文说明文档
+├── README_CN.md              # 中文说明文档
+├── scripts/                  # 脚本目录
+│   ├── model/                # 模型相关脚本
+│   │   ├── verify_model.py   # 模型验证脚本
+│   │   ├── quantize_model.py # 模型量化脚本
+│   │   ├── test_attention.py # 注意力机制测试脚本
+│   │   └── test_vllm.py      # vLLM测试脚本
+│   ├── benchmark/            # 基准测试脚本
+│   │   ├── run_benchmark.py  # 基准测试脚本
+│   │   └── run_all_tests.py  # 自动化测试脚本
+│   └── analysis/             # 分析脚本
+│       └── analyze_results.py # 结果分析脚本
 ├── src/                      # 源代码目录
 │   ├── attention/            # 注意力机制模块
 │   ├── quantization/         # 量化方法模块
@@ -23,7 +31,8 @@
 │   └── benchmark/            # 基准测试模块
 ├── data/                     # 数据目录
 │   └── results/              # 结果目录
-└── logs/                     # 日志目录
+├── logs/                     # 日志目录
+└── analysis/                 # 分析输出目录
 ```
 
 ## 安装
@@ -44,62 +53,64 @@ pip install -r requirements.txt
 3. 初始化项目：
 
 ```bash
-python init_project.py
+python main.py init
 ```
 
 ## 使用方法
 
+本项目通过`main.py`脚本提供统一的命令行接口：
+
 ### 1. 验证模型
 
 ```bash
-python verify_model.py --model_path Qwen/Qwen2.5-3B-Instruct --monitor
+python main.py verify --model_path Qwen/Qwen2.5-3B-Instruct --monitor
 ```
 
 ### 2. 量化模型
 
 ```bash
 # AWQ量化
-python quantize_model.py --model_path Qwen/Qwen2.5-3B-Instruct --quant awq --monitor
+python main.py quantize --model_path Qwen/Qwen2.5-3B-Instruct --quant awq --monitor
 
 # GPTQ量化
-python quantize_model.py --model_path Qwen/Qwen2.5-3B-Instruct --quant gptq --monitor
+python main.py quantize --model_path Qwen/Qwen2.5-3B-Instruct --quant gptq --monitor
 ```
 
 ### 3. 测试注意力机制
 
 ```bash
 # 标准注意力
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention standard --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention standard --monitor
 
 # 稀疏注意力
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention sparse --sparsity 0.8 --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention sparse --sparsity 0.8 --monitor
 
 # 线性注意力
-python test_attention.py --model_path Qwen/Qwen2.5-3B-Instruct --attention linear --kernel_function elu --monitor
+python main.py test_attention --model_path Qwen/Qwen2.5-3B-Instruct --attention linear --kernel_function elu --monitor
 ```
 
 ### 4. 使用vLLM加速
 
 ```bash
-python test_vllm.py --model_path Qwen/Qwen2.5-3B-Instruct --quant none --monitor
+python main.py test_vllm --model_path Qwen/Qwen2.5-3B-Instruct --quant none --monitor
 ```
 
 ### 5. 运行基准测试
 
 ```bash
-python run_benchmark.py --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 1 --input_length 512 --output_length 128 --monitor --save_results
+python main.py benchmark --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 1 --input_length 512 --output_length 128 --monitor --save_results
 ```
 
 ### 6. 运行自动化测试
 
 ```bash
-python run_all_tests.py --model_path Qwen/Qwen2.5-3B-Instruct --quant_types none,awq,gptq --attention_types standard,sparse,linear --batch_sizes 1 --input_lengths 512,1024,2048 --output_lengths 128 --monitor --save_results
+python main.py auto_test --model_path Qwen/Qwen2.5-3B-Instruct --quant_types none,awq,gptq --attention_types standard,sparse,linear --batch_sizes 1 --input_lengths 512,1024,2048 --output_lengths 128 --monitor --save_results
 ```
 
 ### 7. 分析结果
 
 ```bash
-python analyze_results.py --results_dir data/results --output_dir analysis --metrics latency,tokens_per_second,memory_usage,perplexity
+python main.py analyze --results_dir data/results --output_dir analysis --metrics latency,tokens_per_second,memory_usage,perplexity
 ```
 
 ## 注意事项
