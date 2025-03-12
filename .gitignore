@@ -4,3 +4,5 @@
 /Qwen
 /__pycache__
 *.pyc
+.history/
+models/

@@ -90,6 +90,16 @@ def parse_args():
     analyze_parser.add_argument("--output_dir", type=str, default="analysis", help="输出目录")
     analyze_parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity", help="要分析的指标，用逗号分隔")
     
+    # 测试微调模型命令
+    test_finetune_parser = subparsers.add_parser("test_finetune", help="测试微调前后的模型效果差异")
+    test_finetune_parser.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="基础模型路径")
+    test_finetune_parser.add_argument("--finetuned_model", type=str, default="models/finetuned/final", help="微调模型路径")
+    test_finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
+    test_finetune_parser.add_argument("--num_samples", type=int, default=3, help="测试样本数量")
+    test_finetune_parser.add_argument("--output_file", type=str, default="test_results.txt", help="输出结果文件")
+    test_finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="模型精度")
+    test_finetune_parser.add_argument("--merge_weights", action="store_true", help="是否合并LoRA权重以加快推理速度")
+    
     # 初始化项目命令
     init_parser = subparsers.add_parser("init", help="初始化项目")
     init_parser.add_argument("--force", action="store_true", help="强制重新初始化项目")
@@ -207,6 +217,20 @@ def main():
             "--metrics", args.metrics
         ]
         analyze_main()
+    
+    elif args.command == "test_finetune":
+        from scripts.model.test_finetuned_model import main as test_finetune_main
+        sys.argv = [sys.argv[0]] + [
+            "--base_model", args.base_model,
+            "--finetuned_model", args.finetuned_model,
+            "--dataset_path", args.dataset_path,
+            "--num_samples", str(args.num_samples),
+            "--output_file", args.output_file,
+            "--precision", args.precision
+        ]
+        if args.merge_weights:
+            sys.argv.append("--merge_weights")
+        test_finetune_main()
     
     elif args.command == "init":
         from init_project import main as init_main
