@@ -53,7 +53,7 @@ def parse_args():
     vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
     # 微调模型命令
-    finetune_parser = subparsers.add_parser("finetune", help="微调模型")
+    finetune_parser = subparsers.add_parser("finetune", help="微调模型.")
     finetune_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
     finetune_parser.add_argument("--output_dir", type=str, default="models/finetuned", help="微调模型输出目录")
