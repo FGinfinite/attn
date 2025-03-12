@@ -38,6 +38,14 @@ def parse_args():
                         help="稀疏注意力的稀疏度")
     parser.add_argument("--kernel_function", type=str, default="elu",
                         help="线性注意力的核函数")
+    parser.add_argument("--num_hashes", type=int, default=4,
+                        help="Reformer注意力的哈希数")
+    parser.add_argument("--k_ratio", type=float, default=0.25,
+                        help="Linformer注意力的k比例")
+    parser.add_argument("--window_size", type=int, default=128,
+                        help="Longformer注意力的窗口大小")
+    parser.add_argument("--global_tokens_ratio", type=float, default=0.1,
+                        help="Longformer注意力的全局token比例")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="批处理大小")
     parser.add_argument("--input_length", type=int, default=512,
@@ -102,6 +110,14 @@ def main():
                 kwargs["sparsity"] = args.sparsity
             elif args.attention == "linear":
                 kwargs["kernel_function"] = args.kernel_function
+            elif args.attention == "reformer":
+                kwargs["num_hashes"] = args.num_hashes
+            elif args.attention == "linformer":
+                kwargs["k_ratio"] = args.k_ratio
+                kwargs["max_seq_length"] = args.input_length  # 使用输入长度作为最大序列长度
+            elif args.attention == "longformer":
+                kwargs["window_size"] = args.window_size
+                kwargs["global_tokens_ratio"] = args.global_tokens_ratio
             
             model = replace_attention_mechanism(model, args.attention, **kwargs)
         

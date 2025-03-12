@@ -37,9 +37,13 @@ def parse_args():
     # 测试注意力机制命令
     attn_parser = subparsers.add_parser("test_attention", help="测试注意力机制")
     attn_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear"], default="standard", help="注意力机制类型")
+    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
     attn_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
     attn_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
+    attn_parser.add_argument("--num_hashes", type=int, default=4, help="Reformer注意力的哈希数")
+    attn_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
+    attn_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
+    attn_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
     # 测试vLLM命令
@@ -65,10 +69,16 @@ def parse_args():
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
     bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     bench_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
-    bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear"], default="standard", help="注意力机制类型")
+    bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
     bench_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
     bench_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
     bench_parser.add_argument("--output_length", type=int, default=128, help="输出长度")
+    bench_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
+    bench_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
+    bench_parser.add_argument("--num_hashes", type=int, default=4, help="Reformer注意力的哈希数")
+    bench_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
+    bench_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
+    bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
     
@@ -76,7 +86,7 @@ def parse_args():
     auto_parser = subparsers.add_parser("auto_test", help="运行自动化测试")
     auto_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     auto_parser.add_argument("--quant_types", type=str, default="none,awq,gptq", help="量化方法列表，用逗号分隔")
-    auto_parser.add_argument("--attention_types", type=str, default="standard,sparse,linear", help="注意力机制类型列表，用逗号分隔")
+    auto_parser.add_argument("--attention_types", type=str, default="standard,sparse,linear,reformer,linformer,longformer,realformer", help="注意力机制类型列表，用逗号分隔")
     auto_parser.add_argument("--batch_sizes", type=str, default="1", help="批处理大小列表，用逗号分隔")
     auto_parser.add_argument("--input_lengths", type=str, default="512,1024,2048", help="输入长度列表，用逗号分隔")
     auto_parser.add_argument("--output_lengths", type=str, default="128", help="输出长度列表，用逗号分隔")
@@ -145,7 +155,11 @@ def main():
             "--model_path", args.model_path,
             "--attention", args.attention,
             "--sparsity", str(args.sparsity),
-            "--kernel_function", args.kernel_function
+            "--kernel_function", args.kernel_function,
+            "--num_hashes", str(args.num_hashes),
+            "--k_ratio", str(args.k_ratio),
+            "--window_size", str(args.window_size),
+            "--global_tokens_ratio", str(args.global_tokens_ratio)
         ]
         if args.monitor:
             sys.argv.append("--monitor")
@@ -186,6 +200,20 @@ def main():
             "--input_length", str(args.input_length),
             "--output_length", str(args.output_length)
         ]
+        
+        # 根据注意力机制类型添加特定参数
+        if args.attention == "sparse":
+            sys.argv.extend(["--sparsity", str(args.sparsity)])
+        elif args.attention == "linear":
+            sys.argv.extend(["--kernel_function", args.kernel_function])
+        elif args.attention == "reformer":
+            sys.argv.extend(["--num_hashes", str(args.num_hashes)])
+        elif args.attention == "linformer":
+            sys.argv.extend(["--k_ratio", str(args.k_ratio)])
+        elif args.attention == "longformer":
+            sys.argv.extend(["--window_size", str(args.window_size), 
+                            "--global_tokens_ratio", str(args.global_tokens_ratio)])
+        
         if args.monitor:
             sys.argv.append("--monitor")
         if args.save_results:

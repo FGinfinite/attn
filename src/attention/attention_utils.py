@@ -18,13 +18,26 @@ from src.attention.sparse_attention import (
 from src.attention.linear_attention import (
     get_linear_attention_config, replace_with_linear_attention
 )
+# 导入新增的注意力机制
+from src.attention.reformer_attention import (
+    get_reformer_attention_config, replace_with_reformer_attention
+)
+from src.attention.linformer_attention import (
+    get_linformer_attention_config, replace_with_linformer_attention
+)
+from src.attention.longformer_attention import (
+    get_longformer_attention_config, replace_with_longformer_attention
+)
+from src.attention.realformer_attention import (
+    get_realformer_attention_config, replace_with_realformer_attention
+)
 
 def get_attention_config(attn_type, **kwargs):
     """
     获取注意力机制配置
     
     Args:
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"
         **kwargs: 其他参数
     
     Returns:
@@ -41,6 +54,25 @@ def get_attention_config(attn_type, **kwargs):
         kernel_function = kwargs.get("kernel_function", "elu")
         return get_linear_attention_config(kernel_function=kernel_function)
     
+    elif attn_type == "reformer":
+        num_hashes = kwargs.get("num_hashes", 4)
+        return get_reformer_attention_config(num_hashes=num_hashes)
+    
+    elif attn_type == "linformer":
+        k_ratio = kwargs.get("k_ratio", 0.25)
+        return get_linformer_attention_config(k_ratio=k_ratio)
+    
+    elif attn_type == "longformer":
+        window_size = kwargs.get("window_size", 128)
+        global_tokens_ratio = kwargs.get("global_tokens_ratio", 0.1)
+        return get_longformer_attention_config(
+            window_size=window_size,
+            global_tokens_ratio=global_tokens_ratio
+        )
+    
+    elif attn_type == "realformer":
+        return get_realformer_attention_config()
+    
     else:
         raise ValueError(f"不支持的注意力机制类型: {attn_type}")
 
@@ -50,7 +82,7 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     
     Args:
         model: 原始模型
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"
         **kwargs: 其他参数
     
     Returns:
@@ -66,6 +98,31 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     elif attn_type == "linear":
         kernel_function = kwargs.get("kernel_function", "elu")
         return replace_with_linear_attention(model, kernel_function=kernel_function)
+    
+    elif attn_type == "reformer":
+        num_hashes = kwargs.get("num_hashes", 4)
+        return replace_with_reformer_attention(model, num_hashes=num_hashes)
+    
+    elif attn_type == "linformer":
+        k_ratio = kwargs.get("k_ratio", 0.25)
+        max_seq_length = kwargs.get("max_seq_length", 512)
+        return replace_with_linformer_attention(
+            model, 
+            k_ratio=k_ratio,
+            max_seq_length=max_seq_length
+        )
+    
+    elif attn_type == "longformer":
+        window_size = kwargs.get("window_size", 128)
+        global_tokens_ratio = kwargs.get("global_tokens_ratio", 0.1)
+        return replace_with_longformer_attention(
+            model, 
+            window_size=window_size,
+            global_tokens_ratio=global_tokens_ratio
+        )
+    
+    elif attn_type == "realformer":
+        return replace_with_realformer_attention(model)
     
     else:
         raise ValueError(f"不支持的注意力机制类型: {attn_type}")
@@ -97,5 +154,15 @@ def get_attention_info(model, attn_type):
     
     elif attn_type == "linear":
         info["kernel_function"] = attn_config.get("kernel_function", "elu")
+    
+    elif attn_type == "reformer":
+        info["num_hashes"] = attn_config.get("num_hashes", 4)
+    
+    elif attn_type == "linformer":
+        info["k_ratio"] = attn_config.get("k_ratio", 0.25)
+    
+    elif attn_type == "longformer":
+        info["window_size"] = attn_config.get("window_size", 128)
+        info["global_tokens_ratio"] = attn_config.get("global_tokens_ratio", 0.1)
     
     return info 

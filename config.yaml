@@ -27,6 +27,10 @@ attention:
     - "standard"
     - "sparse"
     - "linear"
+    - "reformer"
+    - "linformer"
+    - "longformer"
+    - "realformer"
   sparse:
     default_sparsity: 0.8
     sparsity_range:
@@ -38,6 +42,23 @@ attention:
       - "elu"
       - "relu"
       - "gelu"
+  reformer:
+    default_num_hashes: 4
+    hashes_range:
+      - 2
+      - 8
+  linformer:
+    default_k_ratio: 0.25
+    k_ratio_range:
+      - 0.1
+      - 0.5
+    default_max_seq_length: 512
+  longformer:
+    default_window_size: 128
+    window_size_range:
+      - 64
+      - 256
+    default_global_tokens_ratio: 0.1
 
 # 基准测试配置
 benchmark:
