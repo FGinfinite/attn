@@ -6,3 +6,9 @@
 *.pyc
 .history/
 models/
+src/attention/__pycache__/__init__.cpython-312.pyc
+src/attention/__pycache__/__init__.cpython-312.pyc
+src/attention/__pycache__/attention_utils.cpython-312.pyc
+src/benchmark/__pycache__/benchmark_utils.cpython-312.pyc
+src/quantization/__pycache__/quant_utils.cpython-312.pyc
+src/utils/__pycache__/hardware_monitor.cpython-312.pyc
