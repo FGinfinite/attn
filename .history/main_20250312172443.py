@@ -48,19 +48,6 @@ def parse_args():
     vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
     vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
-    # 微调模型命令
-    finetune_parser = subparsers.add_parser("finetune", help="微调模型")
-    finetune_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
-    finetune_parser.add_argument("--output_dir", type=str, default="models/finetuned", help="微调模型输出目录")
-    finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="训练精度")
-    finetune_parser.add_argument("--max_steps", type=int, default=5, help="最大训练步数")
-    finetune_parser.add_argument("--batch_size", type=int, default=1, help="训练批次大小")
-    finetune_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
-    finetune_parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
-    finetune_parser.add_argument("--dataset_size", type=int, default=100, help="生成的数据集大小")
-    finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
-    
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
     bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
@@ -93,6 +80,55 @@ def parse_args():
     # 初始化项目命令
     init_parser = subparsers.add_parser("init", help="初始化项目")
     init_parser.add_argument("--force", action="store_true", help="强制重新初始化项目")
+    
+    # 生成微调数据集命令
+    gen_dataset_parser = subparsers.add_parser("generate_dataset", help="生成微调数据集")
+    gen_dataset_parser.add_argument("--num_samples", type=int, default=100, help="样本数量")
+    gen_dataset_parser.add_argument("--output_file", type=str, default="data/finetune/instruction_dataset.json", help="输出文件路径")
+    gen_dataset_parser.add_argument("--seed", type=int, default=42, help="随机种子")
+    
+    # 微调模型命令
+    finetune_parser = subparsers.add_parser("finetune", help="微调模型")
+    finetune_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/instruction_dataset.json", help="数据集路径")
+    finetune_parser.add_argument("--output_dir", type=str, default="models/finetune", help="输出目录")
+    finetune_parser.add_argument("--num_epochs", type=int, default=3, help="训练轮数")
+    finetune_parser.add_argument("--batch_size", type=int, default=4, help="批处理大小")
+    finetune_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
+    finetune_parser.add_argument("--max_length", type=int, default=1024, help="最大序列长度")
+    finetune_parser.add_argument("--lora_r", type=int, default=8, help="LoRA秩")
+    finetune_parser.add_argument("--lora_alpha", type=int, default=16, help="LoRA缩放因子")
+    finetune_parser.add_argument("--lora_dropout", type=float, default=0.05, help="LoRA dropout")
+    finetune_parser.add_argument("--use_fp16", action="store_true", help="是否使用半精度训练")
+    finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件")
+    finetune_parser.add_argument("--monitor_interval", type=float, default=1.0, help="监控间隔（秒）")
+    finetune_parser.add_argument("--save_steps", type=int, default=10, help="保存步数")
+    finetune_parser.add_argument("--logging_steps", type=int, default=1, help="日志步数")
+    finetune_parser.add_argument("--warmup_steps", type=int, default=0, help="预热步数")
+    finetune_parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="梯度累积步数")
+    finetune_parser.add_argument("--seed", type=int, default=42, help="随机种子")
+    
+    # 运行完整微调流程命令
+    finetune_pipeline_parser = subparsers.add_parser("finetune_pipeline", help="运行完整的微调流程")
+    finetune_pipeline_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    finetune_pipeline_parser.add_argument("--num_samples", type=int, default=100, help="生成的样本数量")
+    finetune_pipeline_parser.add_argument("--dataset_path", type=str, default="data/finetune/instruction_dataset.json", help="数据集路径")
+    finetune_pipeline_parser.add_argument("--output_dir", type=str, default="models/finetune", help="输出目录")
+    finetune_pipeline_parser.add_argument("--num_epochs", type=int, default=3, help="训练轮数")
+    finetune_pipeline_parser.add_argument("--batch_size", type=int, default=4, help="批处理大小")
+    finetune_pipeline_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
+    finetune_pipeline_parser.add_argument("--max_length", type=int, default=1024, help="最大序列长度")
+    finetune_pipeline_parser.add_argument("--lora_r", type=int, default=8, help="LoRA秩")
+    finetune_pipeline_parser.add_argument("--lora_alpha", type=int, default=16, help="LoRA缩放因子")
+    finetune_pipeline_parser.add_argument("--lora_dropout", type=float, default=0.05, help="LoRA dropout")
+    finetune_pipeline_parser.add_argument("--use_fp16", action="store_true", help="是否使用半精度训练")
+    finetune_pipeline_parser.add_argument("--monitor", action="store_true", help="是否监控硬件")
+    finetune_pipeline_parser.add_argument("--monitor_interval", type=float, default=1.0, help="监控间隔（秒）")
+    finetune_pipeline_parser.add_argument("--save_steps", type=int, default=10, help="保存步数")
+    finetune_pipeline_parser.add_argument("--logging_steps", type=int, default=1, help="日志步数")
+    finetune_pipeline_parser.add_argument("--warmup_steps", type=int, default=0, help="预热步数")
+    finetune_pipeline_parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="梯度累积步数")
+    finetune_pipeline_parser.add_argument("--seed", type=int, default=42, help="随机种子")
     
     return parser.parse_args()
 
@@ -148,24 +184,6 @@ def main():
             sys.argv.append("--monitor")
         test_vllm_main()
     
-    elif args.command == "finetune":
-        from scripts.model.finetune_model import main as finetune_main
-        sys.argv = [sys.argv[0]] + [
-            "--model_path", args.model_path,
-            "--dataset_path", args.dataset_path,
-            "--output_dir", args.output_dir,
-            "--precision", args.precision,
-            "--max_steps", str(args.max_steps),
-            "--batch_size", str(args.batch_size),
-            "--learning_rate", str(args.learning_rate)
-        ]
-        if args.generate_dataset:
-            sys.argv.append("--generate_dataset")
-            sys.argv.extend(["--dataset_size", str(args.dataset_size)])
-        if args.monitor:
-            sys.argv.append("--monitor")
-        finetune_main()
-    
     elif args.command == "benchmark":
         from scripts.benchmark.run_benchmark import main as benchmark_main
         sys.argv = [sys.argv[0]] + [
@@ -214,6 +232,68 @@ def main():
         if args.force:
             sys.argv.append("--force")
         init_main()
+    
+    elif args.command == "generate_dataset":
+        from scripts.model.generate_finetune_dataset import main as gen_dataset_main
+        sys.argv = [sys.argv[0]] + [
+            "--num_samples", str(args.num_samples),
+            "--output_file", args.output_file,
+            "--seed", str(args.seed)
+        ]
+        gen_dataset_main()
+    
+    elif args.command == "finetune":
+        from scripts.model.finetune_model import main as finetune_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--dataset_path", args.dataset_path,
+            "--output_dir", args.output_dir,
+            "--num_epochs", str(args.num_epochs),
+            "--batch_size", str(args.batch_size),
+            "--learning_rate", str(args.learning_rate),
+            "--max_length", str(args.max_length),
+            "--lora_r", str(args.lora_r),
+            "--lora_alpha", str(args.lora_alpha),
+            "--lora_dropout", str(args.lora_dropout),
+            "--save_steps", str(args.save_steps),
+            "--logging_steps", str(args.logging_steps),
+            "--warmup_steps", str(args.warmup_steps),
+            "--gradient_accumulation_steps", str(args.gradient_accumulation_steps),
+            "--seed", str(args.seed)
+        ]
+        if args.use_fp16:
+            sys.argv.append("--use_fp16")
+        if args.monitor:
+            sys.argv.append("--monitor")
+            sys.argv.extend(["--monitor_interval", str(args.monitor_interval)])
+        finetune_main()
+    
+    elif args.command == "finetune_pipeline":
+        from scripts.model.run_finetune_pipeline import main as finetune_pipeline_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--num_samples", str(args.num_samples),
+            "--dataset_path", args.dataset_path,
+            "--output_dir", args.output_dir,
+            "--num_epochs", str(args.num_epochs),
+            "--batch_size", str(args.batch_size),
+            "--learning_rate", str(args.learning_rate),
+            "--max_length", str(args.max_length),
+            "--lora_r", str(args.lora_r),
+            "--lora_alpha", str(args.lora_alpha),
+            "--lora_dropout", str(args.lora_dropout),
+            "--save_steps", str(args.save_steps),
+            "--logging_steps", str(args.logging_steps),
+            "--warmup_steps", str(args.warmup_steps),
+            "--gradient_accumulation_steps", str(args.gradient_accumulation_steps),
+            "--seed", str(args.seed)
+        ]
+        if args.use_fp16:
+            sys.argv.append("--use_fp16")
+        if args.monitor:
+            sys.argv.append("--monitor")
+            sys.argv.extend(["--monitor_interval", str(args.monitor_interval)])
+        finetune_pipeline_main()
     
     else:
         logger.error(f"未知命令: {args.command}")

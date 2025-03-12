@@ -48,19 +48,6 @@ def parse_args():
     vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
     vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
-    # 微调模型命令
-    finetune_parser = subparsers.add_parser("finetune", help="微调模型")
-    finetune_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
-    finetune_parser.add_argument("--output_dir", type=str, default="models/finetuned", help="微调模型输出目录")
-    finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="训练精度")
-    finetune_parser.add_argument("--max_steps", type=int, default=5, help="最大训练步数")
-    finetune_parser.add_argument("--batch_size", type=int, default=1, help="训练批次大小")
-    finetune_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
-    finetune_parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
-    finetune_parser.add_argument("--dataset_size", type=int, default=100, help="生成的数据集大小")
-    finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
-    
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
     bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
@@ -147,24 +134,6 @@ def main():
         if args.monitor:
             sys.argv.append("--monitor")
         test_vllm_main()
-    
-    elif args.command == "finetune":
-        from scripts.model.finetune_model import main as finetune_main
-        sys.argv = [sys.argv[0]] + [
-            "--model_path", args.model_path,
-            "--dataset_path", args.dataset_path,
-            "--output_dir", args.output_dir,
-            "--precision", args.precision,
-            "--max_steps", str(args.max_steps),
-            "--batch_size", str(args.batch_size),
-            "--learning_rate", str(args.learning_rate)
-        ]
-        if args.generate_dataset:
-            sys.argv.append("--generate_dataset")
-            sys.argv.extend(["--dataset_size", str(args.dataset_size)])
-        if args.monitor:
-            sys.argv.append("--monitor")
-        finetune_main()
     
     elif args.command == "benchmark":
         from scripts.benchmark.run_benchmark import main as benchmark_main

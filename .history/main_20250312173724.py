@@ -54,7 +54,7 @@ def parse_args():
     finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
     finetune_parser.add_argument("--output_dir", type=str, default="models/finetuned", help="微调模型输出目录")
     finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="训练精度")
-    finetune_parser.add_argument("--max_steps", type=int, default=5, help="最大训练步数")
+    finetune_parser.add_argument("--max_steps", type=int, default=50, help="最大训练步数")
     finetune_parser.add_argument("--batch_size", type=int, default=1, help="训练批次大小")
     finetune_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
     finetune_parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
