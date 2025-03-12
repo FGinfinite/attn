@@ -16,10 +16,17 @@ try:
 except ImportError:
     NVML_AVAILABLE = False
 
+# 添加psutil支持CPU监控
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 logger = logging.getLogger("attn_experiment")
 
 class HardwareMonitor:
-    """硬件监控类，用于监控GPU使用情况"""
+    """硬件监控类，用于监控GPU使用情况和模型性能指标"""
     
     def __init__(self, interval=1.0, log_dir=None):
         """
@@ -55,10 +62,6 @@ class HardwareMonitor:
             logger.warning("监控器已在运行")
             return
         
-        if self.device_count == 0:
-            logger.warning("没有可用的GPU设备，无法启动监控")
-            return
-        
         self.running = True
         self.start_time = time.time()
         self.metrics.clear()
@@ -90,6 +93,15 @@ class HardwareMonitor:
                 timestamp = time.time() - self.start_time
                 self.metrics["timestamp"].append(timestamp)
                 
+                # 监控CPU使用率
+                if PSUTIL_AVAILABLE:
+                    cpu_percent = psutil.cpu_percent()
+                    self.metrics["cpu_percent"].append(cpu_percent)
+                    
+                    # 内存使用率
+                    memory_info = psutil.virtual_memory()
+                    self.metrics["memory_percent"].append(memory_info.percent)
+                
                 # 遍历所有GPU设备
                 for i in range(self.device_count):
                     handle = nvml.nvmlDeviceGetHandleByIndex(i)
@@ -97,6 +109,8 @@ class HardwareMonitor:
                     # 获取GPU利用率
                     utilization = nvml.nvmlDeviceGetUtilizationRates(handle)
                     self.metrics[f"gpu{i}_util"].append(utilization.gpu)
+                    # 保存为gpu_load(与用户当前看到的键名保持一致)
+                    self.metrics["gpu_load"].append(utilization.gpu)
                     
                     # 获取GPU内存使用情况
                     memory = nvml.nvmlDeviceGetMemoryInfo(handle)
@@ -107,6 +121,8 @@ class HardwareMonitor:
                     self.metrics[f"gpu{i}_mem_used_mb"].append(memory_used_mb)
                     self.metrics[f"gpu{i}_mem_total_mb"].append(memory_total_mb)
                     self.metrics[f"gpu{i}_mem_percent"].append(memory_percent)
+                    # 保存为gpu_memory_percent(与用户当前看到的键名保持一致)
+                    self.metrics["gpu_memory_percent"].append(memory_percent)
                     
                     # 获取GPU温度
                     temperature = nvml.nvmlDeviceGetTemperature(handle, nvml.NVML_TEMPERATURE_GPU)
@@ -121,6 +137,20 @@ class HardwareMonitor:
             
             # 等待下一个监控周期
             time.sleep(self.interval)
+    
+    def add_model_metric(self, metric_name, value):
+        """
+        添加模型性能指标
+        
+        Args:
+            metric_name: 指标名称（如latency、tokens_per_second、perplexity）
+            value: 指标值
+        """
+        if self.running:
+            self.metrics[metric_name].append(value)
+            logger.debug(f"添加模型指标: {metric_name}={value}")
+        else:
+            logger.warning(f"监控器未运行，无法添加指标: {metric_name}={value}")
     
     def get_metrics(self):
         """获取监控指标"""

@@ -60,6 +60,11 @@ class ResourceMonitor:
         self.timestamps = []
         self.start_time = None
         
+        # 添加对模型性能指标的支持
+        self.latency = []  # 延迟（毫秒）
+        self.tokens_per_second = []  # 生成速度（token/s）
+        self.perplexity = []  # 困惑度
+        
         # 确保日志目录存在
         os.makedirs(log_dir, exist_ok=True)
     
@@ -106,6 +111,27 @@ class ResourceMonitor:
             # 休眠一段时间
             time.sleep(self.interval)
     
+    def add_model_metric(self, metric_name, value):
+        """
+        添加模型性能指标
+        
+        Args:
+            metric_name: 指标名称，如'latency', 'tokens_per_second', 'perplexity'
+            value: 指标值
+        """
+        if not self.running:
+            logger.warning(f"监控器未运行，无法添加指标: {metric_name}={value}")
+            return
+            
+        if metric_name == "latency":
+            self.latency.append(value)
+        elif metric_name == "tokens_per_second":
+            self.tokens_per_second.append(value)
+        elif metric_name == "perplexity":
+            self.perplexity.append(value)
+        else:
+            logger.warning(f"未知的性能指标: {metric_name}")
+    
     def start(self):
         """开始监控"""
         if not self.running:
@@ -131,16 +157,59 @@ class ResourceMonitor:
         # 保存监控数据到CSV文件
         data_file = os.path.join(self.log_dir, "resource_usage.csv")
         with open(data_file, "w", encoding="utf-8") as f:
-            f.write("timestamp,cpu_percent,memory_percent,gpu_load,gpu_memory_percent\n")
+            # 添加表头，包含模型性能指标
+            headers = ["timestamp", "cpu_percent", "memory_percent", "gpu_load", "gpu_memory_percent"]
+            
+            # 如果有模型性能指标数据，添加相应的列
+            if self.latency:
+                headers.append("latency")
+            if self.tokens_per_second:
+                headers.append("tokens_per_second")
+            if self.perplexity:
+                headers.append("perplexity")
+                
+            f.write(",".join(headers) + "\n")
+            
+            # 写入所有数据
             for i in range(len(self.timestamps)):
-                f.write(f"{self.timestamps[i]:.2f},{self.cpu_usages[i]:.2f},{self.memory_usages[i]:.2f},"
-                       f"{self.gpu_usages[i]:.2f},{self.gpu_memory_usages[i]:.2f}\n")
+                line = f"{self.timestamps[i]:.2f},{self.cpu_usages[i]:.2f},{self.memory_usages[i]:.2f}," \
+                      f"{self.gpu_usages[i]:.2f},{self.gpu_memory_usages[i]:.2f}"
+                
+                # 添加模型性能指标（如果有）
+                if self.latency and i < len(self.latency):
+                    line += f",{self.latency[i]:.2f}"
+                elif self.latency:
+                    line += ","
+                    
+                if self.tokens_per_second and i < len(self.tokens_per_second):
+                    line += f",{self.tokens_per_second[i]:.2f}"
+                elif self.tokens_per_second:
+                    line += ","
+                    
+                if self.perplexity and i < len(self.perplexity):
+                    line += f",{self.perplexity[i]:.2f}"
+                elif self.perplexity:
+                    line += ","
+                
+                f.write(line + "\n")
         
         # 绘制监控图表
-        plt.figure(figsize=(12, 10))
+        num_plots = 4  # 基础图表数量（CPU, 内存, GPU, GPU内存）
+        
+        # 确定需要绘制的额外图表数量
+        if self.latency:
+            num_plots += 1
+        if self.tokens_per_second:
+            num_plots += 1
+        if self.perplexity:
+            num_plots += 1
+        
+        # 创建适当大小的图表
+        rows = (num_plots + 1) // 2  # 向上取整
+        plt.figure(figsize=(14, 5 * rows))
         
         # CPU使用率
-        plt.subplot(2, 2, 1)
+        plt.subplot(rows, 2, 1)
         plt.plot(self.timestamps, self.cpu_usages)
         plt.title("CPU使用率")
         plt.xlabel("时间(秒)")
@@ -148,7 +217,7 @@ class ResourceMonitor:
         plt.grid(True)
         
         # 内存使用率
-        plt.subplot(2, 2, 2)
+        plt.subplot(rows, 2, 2)
         plt.plot(self.timestamps, self.memory_usages)
         plt.title("内存使用率")
         plt.xlabel("时间(秒)")
@@ -156,7 +225,7 @@ class ResourceMonitor:
         plt.grid(True)
         
         # GPU使用率
-        plt.subplot(2, 2, 3)
+        plt.subplot(rows, 2, 3)
         plt.plot(self.timestamps, self.gpu_usages)
         plt.title("GPU使用率")
         plt.xlabel("时间(秒)")
@@ -164,12 +233,42 @@ class ResourceMonitor:
         plt.grid(True)
         
         # GPU内存使用率
-        plt.subplot(2, 2, 4)
+        plt.subplot(rows, 2, 4)
         plt.plot(self.timestamps, self.gpu_memory_usages)
         plt.title("GPU内存使用率")
         plt.xlabel("时间(秒)")
         plt.ylabel("使用率(%)")
         plt.grid(True)
+        
+        # 模型延迟
+        plot_idx = 5
+        if self.latency:
+            plt.subplot(rows, 2, plot_idx)
+            plt.plot(range(len(self.latency)), self.latency)
+            plt.title("模型延迟")
+            plt.xlabel("步骤")
+            plt.ylabel("延迟(毫秒)")
+            plt.grid(True)
+            plot_idx += 1
+        
+        # 模型生成速度
+        if self.tokens_per_second:
+            plt.subplot(rows, 2, plot_idx)
+            plt.plot(range(len(self.tokens_per_second)), self.tokens_per_second)
+            plt.title("模型生成速度")
+            plt.xlabel("步骤")
+            plt.ylabel("Tokens/秒")
+            plt.grid(True)
+            plot_idx += 1
+        
+        # 模型困惑度
+        if self.perplexity:
+            plt.subplot(rows, 2, plot_idx)
+            plt.plot(range(len(self.perplexity)), self.perplexity)
+            plt.title("模型困惑度")
+            plt.xlabel("步骤")
+            plt.ylabel("困惑度")
+            plt.grid(True)
         
         plt.tight_layout()
         plt.savefig(os.path.join(self.log_dir, "resource_usage.png"))
@@ -184,6 +283,14 @@ class ResourceMonitor:
         max_gpu = np.max(self.gpu_usages)
         avg_gpu_memory = np.mean(self.gpu_memory_usages)
         max_gpu_memory = np.max(self.gpu_memory_usages)
+        
+        # 计算模型性能指标的统计值
+        avg_latency = np.mean(self.latency) if self.latency else None
+        max_latency = np.max(self.latency) if self.latency else None
+        avg_tokens_per_second = np.mean(self.tokens_per_second) if self.tokens_per_second else None
+        min_tokens_per_second = np.min(self.tokens_per_second) if self.tokens_per_second else None
+        avg_perplexity = np.mean(self.perplexity) if self.perplexity else None
+        min_perplexity = np.min(self.perplexity) if self.perplexity else None
         
         # 保存摘要报告
         summary_file = os.path.join(self.log_dir, "resource_summary.txt")
@@ -202,15 +309,27 @@ class ResourceMonitor:
             f.write(f"  最大: {max_gpu:.2f}%\n\n")
             f.write("GPU内存使用率:\n")
             f.write(f"  平均: {avg_gpu_memory:.2f}%\n")
-            f.write(f"  最大: {max_gpu_memory:.2f}%\n")
+            f.write(f"  最大: {max_gpu_memory:.2f}%\n\n")
+            
+            # 添加模型性能指标
+            if avg_latency is not None:
+                f.write("模型延迟:\n")
+                f.write(f"  平均: {avg_latency:.2f} 毫秒\n")
+                f.write(f"  最大: {max_latency:.2f} 毫秒\n\n")
+            
+            if avg_tokens_per_second is not None:
+                f.write("模型生成速度:\n")
+                f.write(f"  平均: {avg_tokens_per_second:.2f} tokens/秒\n")
+                f.write(f"  最小: {min_tokens_per_second:.2f} tokens/秒\n\n")
+            
+            if avg_perplexity is not None:
+                f.write("模型困惑度:\n")
+                f.write(f"  平均: {avg_perplexity:.2f}\n")
+                f.write(f"  最小: {min_perplexity:.2f}\n\n")
+            
+        logger.info(f"监控报告已生成到 {self.log_dir}")
         
-        logger.info(f"资源监控报告已保存到 {self.log_dir}")
-        
-        # 记录摘要到日志
-        logger.info(f"资源使用摘要 - CPU: 平均 {avg_cpu:.2f}%, 最大 {max_cpu:.2f}%; "
-                   f"内存: 平均 {avg_memory:.2f}%, 最大 {max_memory:.2f}%; "
-                   f"GPU: 平均 {avg_gpu:.2f}%, 最大 {max_gpu:.2f}%; "
-                   f"GPU内存: 平均 {avg_gpu_memory:.2f}%, 最大 {max_gpu_memory:.2f}%")
+        return data_file
 
 class QwenFinetuneDataset(Dataset):
     """
@@ -357,14 +476,31 @@ def train_custom(model, tokenizer, dataset, args, monitor=None):
             labels = batch["labels"].to(device)
             
             # 前向传播
+            start_time = time.time()
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels
             )
+            end_time = time.time()
             
             loss = outputs.loss
             total_loss += loss.item()
+            
+            # 计算并记录性能指标
+            if monitor:
+                # 计算延迟（毫秒）
+                latency = (end_time - start_time) * 1000
+                monitor.add_model_metric("latency", latency)
+                
+                # 计算困惑度
+                perplexity = torch.exp(loss).item()
+                monitor.add_model_metric("perplexity", perplexity)
+                
+                # 估算生成速度（tokens/s）- 使用batch中的token数估算
+                batch_tokens = input_ids.numel()
+                tokens_per_second = batch_tokens / (end_time - start_time)
+                monitor.add_model_metric("tokens_per_second", tokens_per_second)
             
             # 反向传播
             loss.backward()

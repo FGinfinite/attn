@@ -14,8 +14,13 @@ logger = logging.getLogger("attn_experiment")
 class BenchmarkResult:
     """基准测试结果类"""
     
-    def __init__(self):
-        """初始化"""
+    def __init__(self, hardware_monitor=None):
+        """
+        初始化
+        
+        Args:
+            hardware_monitor: 可选的硬件监控器实例
+        """
         self.metrics = {
             "latency": [],  # 延迟（毫秒）
             "tokens_per_second": [],  # 生成速度（token/s）
@@ -24,6 +29,7 @@ class BenchmarkResult:
         }
         self.config = {}
         self.summary = {}
+        self.hardware_monitor = hardware_monitor
     
     def add_metric(self, name, value):
         """添加指标"""
@@ -31,6 +37,10 @@ class BenchmarkResult:
             self.metrics[name] = []
         
         self.metrics[name].append(value)
+        
+        # 如果有硬件监控器，也向其添加指标
+        if self.hardware_monitor is not None:
+            self.hardware_monitor.add_model_metric(name, value)
     
     def set_config(self, config):
         """设置配置"""
@@ -68,7 +78,7 @@ class BenchmarkResult:
             }
         }
 
-def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, warmup_runs=2):
+def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, warmup_runs=2, hardware_monitor=None):
     """
     测量生成延迟
     
@@ -79,6 +89,7 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
         max_new_tokens: 最大生成token数
         num_runs: 运行次数
         warmup_runs: 预热运行次数
+        hardware_monitor: 可选的硬件监控器实例
     
     Returns:
         latency: 平均延迟（毫秒）
@@ -134,6 +145,11 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
         # 计算生成速度
         tokens_per_second = num_generated_tokens / (end_time - start_time)
         tokens_per_second_list.append(tokens_per_second)
+        
+        # 如果有硬件监控器，也向其添加实时指标
+        if hardware_monitor is not None:
+            hardware_monitor.add_model_metric("latency", latency)
+            hardware_monitor.add_model_metric("tokens_per_second", tokens_per_second)
     
     # 计算平均值
     avg_latency = np.mean(latencies)
@@ -144,7 +160,7 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
     
     return avg_latency, avg_tokens_per_second
 
-def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20):
+def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20, hardware_monitor=None):
     """
     测量显存使用
     
@@ -153,6 +169,7 @@ def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20):
         tokenizer: 分词器
         prompt: 提示文本
         max_new_tokens: 最大生成token数
+        hardware_monitor: 可选的硬件监控器实例
     
     Returns:
         memory_usage: 显存使用（MB）
@@ -187,11 +204,15 @@ def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20):
     # 计算显存使用
     memory_usage = final_memory - initial_memory
     
+    # 如果有硬件监控器，也向其添加指标
+    if hardware_monitor is not None:
+        hardware_monitor.add_model_metric("memory_usage", memory_usage)
+    
     logger.info(f"显存使用: {memory_usage:.2f} MB")
     
     return memory_usage
 
-def calculate_perplexity(model, tokenizer, text, stride=512):
+def calculate_perplexity(model, tokenizer, text, stride=512, hardware_monitor=None):
     """
     计算困惑度
     
@@ -200,6 +221,7 @@ def calculate_perplexity(model, tokenizer, text, stride=512):
         tokenizer: 分词器
         text: 文本
         stride: 步长
+        hardware_monitor: 可选的硬件监控器实例
     
     Returns:
         perplexity: 困惑度
@@ -251,11 +273,15 @@ def calculate_perplexity(model, tokenizer, text, stride=512):
     # 计算困惑度
     ppl = torch.exp(torch.stack(nlls).sum() / end_loc)
     
+    # 如果有硬件监控器，也向其添加指标
+    if hardware_monitor is not None:
+        hardware_monitor.add_model_metric("perplexity", ppl.item())
+    
     logger.info(f"困惑度: {ppl.item():.2f}")
     
     return ppl.item()
 
-def run_benchmark(model, tokenizer, config):
+def run_benchmark(model, tokenizer, config, hardware_monitor=None):
     """
     运行基准测试
     
@@ -263,6 +289,7 @@ def run_benchmark(model, tokenizer, config):
         model: 模型
         tokenizer: 分词器
         config: 配置
+        hardware_monitor: 可选的硬件监控器实例
     
     Returns:
         result: 基准测试结果
@@ -270,7 +297,7 @@ def run_benchmark(model, tokenizer, config):
     logger.info(f"开始运行基准测试")
     
     # 创建结果对象
-    result = BenchmarkResult()
+    result = BenchmarkResult(hardware_monitor=hardware_monitor)
     result.set_config(config)
     
     # 获取配置
@@ -287,7 +314,8 @@ def run_benchmark(model, tokenizer, config):
             prompt=prompt,
             max_new_tokens=max_new_tokens,
             num_runs=num_runs,
-            warmup_runs=warmup_runs
+            warmup_runs=warmup_runs,
+            hardware_monitor=hardware_monitor
         )
         
         result.add_metric("latency", latency)
@@ -299,7 +327,8 @@ def run_benchmark(model, tokenizer, config):
             model=model,
             tokenizer=tokenizer,
             prompt=prompt,
-            max_new_tokens=max_new_tokens
+            max_new_tokens=max_new_tokens,
+            hardware_monitor=hardware_monitor
         )
         
         result.add_metric("memory_usage", memory_usage)
@@ -310,7 +339,8 @@ def run_benchmark(model, tokenizer, config):
             perplexity = calculate_perplexity(
                 model=model,
                 tokenizer=tokenizer,
-                text=text
+                text=text,
+                hardware_monitor=hardware_monitor
             )
             
             result.add_metric("perplexity", perplexity)

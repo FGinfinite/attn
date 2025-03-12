@@ -125,7 +125,7 @@ def main():
         
         # 运行基准测试
         logger.info("运行基准测试...")
-        result = run_benchmark(model, tokenizer, benchmark_config)
+        result = run_benchmark(model, tokenizer, benchmark_config, hardware_monitor=monitor)
         
         # 输出结果
         logger.info("基准测试结果:")
