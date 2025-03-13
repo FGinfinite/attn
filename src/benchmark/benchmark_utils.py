@@ -288,7 +288,7 @@ def run_benchmark(model, tokenizer, config, hardware_monitor=None):
     result.set_config(config)
     
     # 获取测试用例，默认最多使用3个
-    max_test_cases = config.get("max_test_cases", 3)
+    max_test_cases = config.get("max_test_cases")
     test_cases = get_all_test_cases(max_test_cases)
     
     for case in test_cases:
