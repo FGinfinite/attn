@@ -27,7 +27,7 @@ def parse_args():
                         help="结果目录")
     parser.add_argument("--output_dir", type=str, default="./analysis",
                         help="分析结果输出目录")
-    parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity",
+    parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity,flops_flops,flops_macs,flops_params,flops_per_second",
                         help="要分析的指标，用逗号分隔")
     
     return parser.parse_args()
@@ -198,6 +198,124 @@ def analyze_results(df, metrics, output_dir):
         if "perplexity_mean" in df.columns:
             best_perplexity = df.loc[df["perplexity_mean"].idxmin()]
             f.write(f"4. 困惑度最低的组合是：量化方式={best_perplexity['quant']}，注意力机制={best_perplexity['attention']}，平均困惑度={best_perplexity['perplexity_mean']:.2f}\n")
+        
+        # 如果有FLOPs数据，添加FLOPs分析部分
+        flops_metrics = [m for m in metrics if m.startswith("flops_")]
+        if flops_metrics:
+            f.write("\n## 6. FLOPs分析\n\n")
+            f.write("### 6.1 FLOPs统计\n\n")
+            
+            # 创建FLOPs统计表格
+            f.write("| 指标 | 平均值 | 标准差 | 最小值 | 最大值 |\n")
+            f.write("| ---- | ------ | ------ | ------ | ------ |\n")
+            
+            for metric in flops_metrics:
+                if f"{metric}_mean" in df.columns:
+                    mean = df[f"{metric}_mean"].mean()
+                    std = df[f"{metric}_mean"].std()
+                    min_val = df[f"{metric}_mean"].min()
+                    max_val = df[f"{metric}_mean"].max()
+                    
+                    # 格式化显示，对于大数值使用科学计数法
+                    if mean > 1e9:
+                        mean_str = f"{mean/1e9:.2f} G"
+                        std_str = f"{std/1e9:.2f} G"
+                        min_str = f"{min_val/1e9:.2f} G"
+                        max_str = f"{max_val/1e9:.2f} G"
+                    elif mean > 1e6:
+                        mean_str = f"{mean/1e6:.2f} M"
+                        std_str = f"{std/1e6:.2f} M"
+                        min_str = f"{min_val/1e6:.2f} M"
+                        max_str = f"{max_val/1e6:.2f} M"
+                    else:
+                        mean_str = f"{mean:.2f}"
+                        std_str = f"{std:.2f}"
+                        min_str = f"{min_val:.2f}"
+                        max_str = f"{max_val:.2f}"
+                    
+                    metric_name = metric.replace("flops_", "")
+                    f.write(f"| {metric_name} | {mean_str} | {std_str} | {min_str} | {max_str} |\n")
+            
+            f.write("\n### 6.2 不同注意力机制的FLOPs对比\n\n")
+            
+            # 对每个FLOPs指标进行分析
+            for metric in flops_metrics:
+                if f"{metric}_mean" in df.columns:
+                    metric_name = metric.replace("flops_", "")
+                    f.write(f"#### 6.2.{flops_metrics.index(metric)+1} {metric_name} 对比\n\n")
+                    
+                    # 创建注意力机制对比表格
+                    f.write("| 注意力机制 | 平均值 | 标准差 | 最小值 | 最大值 |\n")
+                    f.write("| ---------- | ------ | ------ | ------ | ------ |\n")
+                    
+                    for attention in df["attention"].unique():
+                        attention_df = df[df["attention"] == attention]
+                        
+                        if len(attention_df) > 0 and f"{metric}_mean" in attention_df.columns:
+                            mean = attention_df[f"{metric}_mean"].mean()
+                            std = attention_df[f"{metric}_mean"].std()
+                            min_val = attention_df[f"{metric}_mean"].min()
+                            max_val = attention_df[f"{metric}_mean"].max()
+                            
+                            # 格式化显示
+                            if mean > 1e9:
+                                mean_str = f"{mean/1e9:.2f} G"
+                                std_str = f"{std/1e9:.2f} G"
+                                min_str = f"{min_val/1e9:.2f} G"
+                                max_str = f"{max_val/1e9:.2f} G"
+                            elif mean > 1e6:
+                                mean_str = f"{mean/1e6:.2f} M"
+                                std_str = f"{std/1e6:.2f} M"
+                                min_str = f"{min_val/1e6:.2f} M"
+                                max_str = f"{max_val/1e6:.2f} M"
+                            else:
+                                mean_str = f"{mean:.2f}"
+                                std_str = f"{std:.2f}"
+                                min_str = f"{min_val:.2f}"
+                                max_str = f"{max_val:.2f}"
+                            
+                            f.write(f"| {attention} | {mean_str} | {std_str} | {min_str} | {max_str} |\n")
+                    
+                    f.write("\n")
+            
+            # 添加FLOPs与性能关系分析
+            f.write("\n### 6.3 FLOPs与性能关系分析\n\n")
+            f.write("分析FLOPs与各种性能指标之间的关系：\n\n")
+            
+            performance_metrics = [m for m in metrics if not m.startswith("flops_") and f"{m}_mean" in df.columns]
+            
+            for flops_metric in flops_metrics:
+                if f"{flops_metric}_mean" in df.columns:
+                    flops_metric_name = flops_metric.replace("flops_", "")
+                    
+                    for perf_metric in performance_metrics:
+                        if f"{perf_metric}_mean" in df.columns:
+                            # 计算相关性
+                            if len(df) >= 2:  # 至少需要两个数据点才能计算相关性
+                                try:
+                                    correlation = df[f"{flops_metric}_mean"].corr(df[f"{perf_metric}_mean"])
+                                    f.write(f"- {flops_metric_name}与{perf_metric}的相关系数: {correlation:.4f}\n")
+                                except Exception as e:
+                                    f.write(f"- {flops_metric_name}与{perf_metric}的相关系数计算失败: {str(e)}\n")
+            
+            # 添加FLOPs结论
+            f.write("\n### 6.4 FLOPs结论\n\n")
+            
+            # 找出FLOPs最低的组合
+            if "flops_flops_mean" in df.columns and len(df) > 0:
+                try:
+                    lowest_flops = df.loc[df["flops_flops_mean"].idxmin()]
+                    f.write(f"1. FLOPs最低的组合是：量化方式={lowest_flops['quant']}，注意力机制={lowest_flops['attention']}，平均FLOPs={lowest_flops['flops_flops_mean']:.2e}\n")
+                except Exception as e:
+                    f.write(f"1. 无法确定FLOPs最低的组合: {str(e)}\n")
+            
+            # 找出每秒FLOPs最高的组合（计算效率最高）
+            if "flops_flops_per_second_mean" in df.columns and len(df) > 0:
+                try:
+                    highest_flops_per_second = df.loc[df["flops_flops_per_second_mean"].idxmax()]
+                    f.write(f"2. 计算效率最高的组合是：量化方式={highest_flops_per_second['quant']}，注意力机制={highest_flops_per_second['attention']}，平均每秒FLOPs={highest_flops_per_second['flops_flops_per_second_mean']:.2e}/s\n")
+                except Exception as e:
+                    f.write(f"2. 无法确定计算效率最高的组合: {str(e)}\n")
     
     print(f"分析报告已保存到: {report_file}")
     
@@ -231,6 +349,18 @@ def analyze_results(df, metrics, output_dir):
             plt.legend(title="Attention")
             plt.savefig(output_dir / f"{metric}_by_quant_attention.png")
             plt.close()
+            
+            # 如果有性能指标，创建散点图分析FLOPs与性能的关系
+            for perf_metric in ["latency_mean", "tokens_per_second_mean", "memory_usage_mean"]:
+                if perf_metric in df.columns:
+                    plt.figure(figsize=(10, 6))
+                    sns.scatterplot(x=f"{metric}_mean", y=perf_metric, hue="attention", data=df)
+                    plt.title(f"{metric} vs {perf_metric}")
+                    plt.xlabel(metric)
+                    plt.ylabel(perf_metric.replace("_mean", ""))
+                    plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+                    plt.savefig(output_dir / f"{metric}_vs_{perf_metric}.png")
+                    plt.close()
     
     print(f"可视化图表已保存到: {output_dir}")
     

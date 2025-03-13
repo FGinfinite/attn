@@ -21,6 +21,7 @@ from config import load_config, DEFAULT_MODEL_PATH, LOG_DIR, RESULTS_DIR, SUPPOR
 from src.utils.logger import setup_logger
 from src.utils.model_utils import load_model_and_tokenizer
 from src.utils.hardware_monitor import HardwareMonitor
+from src.utils.flops_profiler import FlopsProfilerWrapper
 from src.attention.attention_utils import replace_attention_mechanism
 from src.quantization.quant_utils import load_quantized_model
 from src.benchmark.benchmark_utils import run_benchmark, BenchmarkResult
@@ -61,6 +62,8 @@ def parse_args():
                         help="最大测试用例数量，None或负数表示使用所有测试用例")
     parser.add_argument("--monitor", action="store_true",
                         help="是否监控硬件使用情况")
+    parser.add_argument("--flops_profiler", action="store_true",
+                        help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     parser.add_argument("--save_results", action="store_true",
                         help="是否保存结果")
     parser.add_argument("--results_dir", type=str, default=RESULTS_DIR,
@@ -93,6 +96,12 @@ def main():
         monitor = HardwareMonitor(interval=1.0, log_dir=LOG_DIR)
         monitor.start()
         logger.info("硬件监控已启动")
+    
+    # 初始化FLOPs分析器
+    flops_profiler = None
+    if args.flops_profiler:
+        flops_profiler = FlopsProfilerWrapper(hardware_monitor=monitor)
+        logger.info("FLOPs分析器已初始化")
     
     try:
         # 加载模型和tokenizer
@@ -137,6 +146,19 @@ def main():
             
             model = replace_attention_mechanism(model, args.attention, **kwargs)
         
+        # 如果启用了FLOPs分析器，进行静态分析
+        if flops_profiler:
+            logger.info("开始进行模型FLOPs静态分析...")
+            # 设置适当的输入形状，考虑到batch_size和input_length
+            input_shape = (args.batch_size, args.input_length)
+            flops, macs, params, results = flops_profiler.profile_model_statistics(
+                model=model,
+                input_shape=input_shape,
+                detailed=True,
+                warm_up=2
+            )
+            logger.info(f"模型静态分析结果: FLOPs={flops}, MACs={macs}, 参数量={params}")
+        
         # 创建基准测试配置
         benchmark_config = {
             "model_path": args.model_path,
@@ -158,7 +180,24 @@ def main():
         
         # 运行基准测试
         logger.info("运行基准测试...")
+        # 如果启用了FLOPs分析器，在运行基准测试之前启动分析
+        if flops_profiler:
+            flops_profiler.start_profiling(model)
+            
         result = run_benchmark(model, tokenizer, benchmark_config, hardware_monitor=monitor)
+        
+        # 如果启用了FLOPs分析器，停止分析并获取结果
+        if flops_profiler:
+            profiling_results = flops_profiler.stop_profiling(print_results=True)
+            if profiling_results:
+                # 将FLOPs分析结果添加到基准测试结果中
+                for key, value in profiling_results["numeric"].items():
+                    result.add_metric(f"flops_{key}", value)
+                
+                # 将可读的结果打印到日志
+                logger.info("FLOPs分析结果:")
+                for key, value in profiling_results["readable"].items():
+                    logger.info(f"{key}: {value}")
         
         # 输出结果
         logger.info("基准测试结果:")
@@ -193,11 +232,21 @@ def main():
             df.to_csv(csv_path, index=False, encoding='utf-8')
             
             logger.info(f"摘要已保存到: {csv_path}")
+            
+            # 如果有FLOPs分析结果，单独保存
+            if flops_profiler and hasattr(flops_profiler, 'model_stats') and flops_profiler.model_stats:
+                flops_path = results_dir / f"{result_filename}_flops.json"
+                with open(flops_path, "w", encoding='utf-8') as f:
+                    json.dump(flops_profiler.model_stats, f, indent=2, ensure_ascii=False)
+                logger.info(f"FLOPs分析结果已保存到: {flops_path}")
         
         logger.info("基准测试成功")
     
     except Exception as e:
         logger.error(f"基准测试失败: {str(e)}")
+        # 导入traceback来打印完整的错误堆栈
+        import traceback
+        logger.error(traceback.format_exc())
     
     finally:
         # 停止硬件监控
@@ -210,6 +259,13 @@ def main():
                 monitor.save_to_csv(monitor_filename)
             
             logger.info("硬件监控已停止")
+        
+        # 确保FLOPs分析器已停止
+        if flops_profiler and hasattr(flops_profiler, 'flops_profiler') and flops_profiler.flops_profiler:
+            try:
+                flops_profiler.stop_profiling(print_results=False)
+            except Exception as e:
+                logger.error(f"停止FLOPs分析器出错: {str(e)}")
     
     logger.info("基准测试完成")
 

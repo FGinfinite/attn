@@ -27,12 +27,14 @@ def parse_args():
     verify_parser = subparsers.add_parser("verify", help="验证模型")
     verify_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     verify_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    verify_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     # 量化模型命令
     quant_parser = subparsers.add_parser("quantize", help="量化模型")
     quant_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     quant_parser.add_argument("--quant", type=str, choices=["awq", "gptq", "fp16", "bf16"], default="awq", help="量化方法")
     quant_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    quant_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     # 测试注意力机制命令
     attn_parser = subparsers.add_parser("test_attention", help="测试注意力机制")
@@ -45,12 +47,14 @@ def parse_args():
     attn_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     attn_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    attn_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     # 测试vLLM命令
     vllm_parser = subparsers.add_parser("test_vllm", help="测试vLLM加速")
     vllm_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none", help="量化方法")
     vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    vllm_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     # 微调模型命令
     finetune_parser = subparsers.add_parser("finetune", help="微调模型.")
@@ -64,6 +68,7 @@ def parse_args():
     finetune_parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
     finetune_parser.add_argument("--dataset_size", type=int, default=100, help="生成的数据集大小")
     finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    finetune_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
@@ -80,8 +85,9 @@ def parse_args():
     bench_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    bench_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
-    bench_parser.add_argument("--max_test_cases", type=int, default=3, help="最大测试用例数量，设置为None或负数表示使用所有测试用例")
+    bench_parser.add_argument("--max_test_cases", type=int, default=-1, help="最大测试用例数量，设置为None或负数表示使用所有测试用例")
     
     # 运行自动化测试命令
     auto_parser = subparsers.add_parser("auto_test", help="运行自动化测试")
@@ -92,6 +98,7 @@ def parse_args():
     auto_parser.add_argument("--input_lengths", type=str, default="512,1024,2048", help="输入长度列表，用逗号分隔")
     auto_parser.add_argument("--output_lengths", type=str, default="128", help="输出长度列表，用逗号分隔")
     auto_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    auto_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     auto_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
     auto_parser.add_argument("--results_dir", type=str, default="data/results", help="结果保存目录")
     
@@ -110,6 +117,17 @@ def parse_args():
     test_finetune_parser.add_argument("--output_file", type=str, default="test_results.txt", help="输出结果文件")
     test_finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="模型精度")
     test_finetune_parser.add_argument("--merge_weights", action="store_true", help="是否合并LoRA权重以加快推理速度")
+    
+    # 测试FLOPs命令
+    test_flops_parser = subparsers.add_parser("test_flops", help="测试FLOPs分析功能")
+    test_flops_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
+    test_flops_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
+    test_flops_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
+    test_flops_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
+    test_flops_parser.add_argument("--output_length", type=int, default=128, help="输出长度")
+    test_flops_parser.add_argument("--detailed", action="store_true", help="是否输出详细的FLOPs分析信息")
+    test_flops_parser.add_argument("--dynamic", action="store_true", help="是否进行动态FLOPs分析")
+    test_flops_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
     # 初始化项目命令
     init_parser = subparsers.add_parser("init", help="初始化项目")
@@ -141,6 +159,8 @@ def main():
         sys.argv = [sys.argv[0]] + ["--model_path", args.model_path]
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         verify_main()
     
     elif args.command == "quantize":
@@ -148,6 +168,8 @@ def main():
         sys.argv = [sys.argv[0]] + ["--model_path", args.model_path, "--quant", args.quant]
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         quantize_main()
     
     elif args.command == "test_attention":
@@ -164,6 +186,8 @@ def main():
         ]
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         test_attention_main()
     
     elif args.command == "test_vllm":
@@ -171,6 +195,8 @@ def main():
         sys.argv = [sys.argv[0]] + ["--model_path", args.model_path, "--quant", args.quant]
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         test_vllm_main()
     
     elif args.command == "finetune":
@@ -189,6 +215,8 @@ def main():
             sys.argv.extend(["--dataset_size", str(args.dataset_size)])
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         finetune_main()
     
     elif args.command == "benchmark":
@@ -218,6 +246,8 @@ def main():
         
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         if args.save_results:
             sys.argv.append("--save_results")
         benchmark_main()
@@ -235,6 +265,8 @@ def main():
         ]
         if args.monitor:
             sys.argv.append("--monitor")
+        if args.flops_profiler:
+            sys.argv.append("--flops_profiler")
         if args.save_results:
             sys.argv.append("--save_results")
         auto_test_main()
@@ -261,6 +293,23 @@ def main():
         if args.merge_weights:
             sys.argv.append("--merge_weights")
         test_finetune_main()
+    
+    elif args.command == "test_flops":
+        from scripts.model.test_flops import main as test_flops_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--attention", args.attention,
+            "--input_length", str(args.input_length),
+            "--batch_size", str(args.batch_size),
+            "--output_length", str(args.output_length)
+        ]
+        if args.detailed:
+            sys.argv.append("--detailed")
+        if args.dynamic:
+            sys.argv.append("--dynamic")
+        if args.monitor:
+            sys.argv.append("--monitor")
+        test_flops_main()
     
     elif args.command == "init":
         from init_project import main as init_main
