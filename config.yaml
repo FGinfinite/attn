@@ -11,6 +11,8 @@ quantization:
     - "none"
     - "awq"
     - "gptq"
+    - "fp16"
+    - "bf16"
   awq:
     bits: 4
     group_size: 128
@@ -20,6 +22,12 @@ quantization:
     bits: 4
     group_size: 128
     desc_act: false
+  fp16:
+    enabled: true
+    save_pretrained: true
+  bf16:
+    enabled: true
+    save_pretrained: true
 
 # 注意力机制配置
 attention:

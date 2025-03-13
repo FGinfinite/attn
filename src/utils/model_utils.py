@@ -22,16 +22,24 @@ def load_model_and_tokenizer(model_path, dtype="float16", device="cuda"):
         model: 模型
         tokenizer: 分词器
     """
-    logger.info(f"加载模型: {model_path}")
+    logger.info(f"加载模型: {model_path}, 数据类型: {dtype}, 设备: {device}")
     
     # 设置数据类型
     torch_dtype = getattr(torch, dtype)
+    logger.info(f"使用torch数据类型: {torch_dtype}")
     
     # 加载分词器
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
         trust_remote_code=True
     )
+    
+    # 记录GPU显存使用情况（加载模型前）
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            allocated = torch.cuda.memory_allocated(i) / 1024**2
+            reserved = torch.cuda.memory_reserved(i) / 1024**2
+            logger.info(f"加载模型前 - GPU {i} 显存使用情况: {allocated:.2f} MB / {reserved:.2f} MB")
     
     # 加载模型
     model = AutoModelForCausalLM.from_pretrained(
@@ -40,6 +48,41 @@ def load_model_and_tokenizer(model_path, dtype="float16", device="cuda"):
         torch_dtype=torch_dtype,
         trust_remote_code=True
     )
+    
+    # 记录GPU显存使用情况（加载模型后）
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            allocated = torch.cuda.memory_allocated(i) / 1024**2
+            reserved = torch.cuda.memory_reserved(i) / 1024**2
+            logger.info(f"加载模型后 - GPU {i} 显存使用情况: {allocated:.2f} MB / {reserved:.2f} MB")
+    
+    # 检查模型参数的数据类型
+    param_dtypes = {p.dtype for p in model.parameters()}
+    logger.info(f"模型参数数据类型: {param_dtypes}")
+    
+    # 检查是否成功应用了指定的数据类型
+    if torch_dtype not in param_dtypes:
+        logger.warning(f"警告：模型参数中没有找到指定的数据类型 {torch_dtype}，可能未成功应用")
+        
+        # 如果是fp16但未成功应用，尝试强制转换
+        if dtype == "float16":
+            logger.info("尝试强制转换为fp16...")
+            model = model.half()
+            
+            # 再次检查
+            param_dtypes = {p.dtype for p in model.parameters()}
+            logger.info(f"转换后模型参数数据类型: {param_dtypes}")
+            
+            if torch.float16 not in param_dtypes:
+                logger.error("错误：无法将模型转换为fp16格式")
+    else:
+        logger.info(f"确认：模型已成功加载为 {torch_dtype} 格式")
+    
+    # 检查模型配置中的dtype
+    if hasattr(model, 'config') and hasattr(model.config, 'torch_dtype'):
+        logger.info(f"模型配置中的dtype: {model.config.torch_dtype}")
+        # 确保配置中的dtype与实际使用的一致
+        model.config.torch_dtype = torch_dtype
     
     logger.info(f"模型加载完成")
     return model, tokenizer

@@ -98,7 +98,7 @@ python main.py test_vllm --model_path Qwen/Qwen2.5-3B-Instruct --quant none --mo
 ### 5. 运行基准测试
 
 ```bash
-python main.py benchmark --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 1 --input_length 512 --output_length 128 --monitor --save_results
+python main.py benchmark --model_path Qwen/Qwen2.5-3B-Instruct --quant none --attention standard --batch_size 16 --input_length 512 --output_length 128 --monitor --save_results
 ```
 
 ### 6. 运行自动化测试

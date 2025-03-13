@@ -25,7 +25,7 @@ def parse_args():
     
     parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct",
                         help="模型路径或名称")
-    parser.add_argument("--quant_types", type=str, default="none,awq,gptq",
+    parser.add_argument("--quant_types", type=str, default="none,awq,gptq,fp16,bf16",
                         help="量化方式列表，用逗号分隔")
     parser.add_argument("--attention_types", type=str, default="standard,sparse,linear",
                         help="注意力机制类型列表，用逗号分隔")

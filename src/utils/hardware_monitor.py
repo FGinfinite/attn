@@ -199,6 +199,22 @@ class HardwareMonitor:
         
         try:
             import pandas as pd
+            
+            # 获取时间戳数组的长度
+            timestamp_length = len(self.metrics.get("timestamp", []))
+            
+            # 确保所有指标数组长度一致
+            for key in self.metrics:
+                if key != "timestamp":
+                    current_length = len(self.metrics[key])
+                    if current_length < timestamp_length:
+                        # 如果数组长度不足，用最后一个值填充
+                        self.metrics[key].extend([self.metrics[key][-1]] * (timestamp_length - current_length))
+                    elif current_length > timestamp_length:
+                        # 如果数组长度过长，截断多余部分
+                        self.metrics[key] = self.metrics[key][:timestamp_length]
+            
+            # 创建DataFrame并保存
             df = pd.DataFrame(self.metrics)
             df.to_csv(filepath, index=False, encoding='utf-8')
             logger.info(f"监控数据已保存到: {filepath}")

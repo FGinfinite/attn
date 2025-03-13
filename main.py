@@ -31,7 +31,7 @@ def parse_args():
     # 量化模型命令
     quant_parser = subparsers.add_parser("quantize", help="量化模型")
     quant_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    quant_parser.add_argument("--quant", type=str, choices=["awq", "gptq"], default="awq", help="量化方法")
+    quant_parser.add_argument("--quant", type=str, choices=["awq", "gptq", "fp16", "bf16"], default="awq", help="量化方法")
     quant_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
     # 测试注意力机制命令
@@ -49,7 +49,7 @@ def parse_args():
     # 测试vLLM命令
     vllm_parser = subparsers.add_parser("test_vllm", help="测试vLLM加速")
     vllm_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
+    vllm_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none", help="量化方法")
     vllm_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
     # 微调模型命令
@@ -68,7 +68,7 @@ def parse_args():
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
     bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    bench_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none", help="量化方法")
+    bench_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none", help="量化方法")
     bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
     bench_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
     bench_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
@@ -81,6 +81,7 @@ def parse_args():
     bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
+    bench_parser.add_argument("--max_test_cases", type=int, default=3, help="最大测试用例数量，设置为None或负数表示使用所有测试用例")
     
     # 运行自动化测试命令
     auto_parser = subparsers.add_parser("auto_test", help="运行自动化测试")
@@ -198,7 +199,8 @@ def main():
             "--attention", args.attention,
             "--batch_size", str(args.batch_size),
             "--input_length", str(args.input_length),
-            "--output_length", str(args.output_length)
+            "--output_length", str(args.output_length),
+            "--max_test_cases", str(args.max_test_cases)
         ]
         
         # 根据注意力机制类型添加特定参数

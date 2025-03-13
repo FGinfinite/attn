@@ -10,6 +10,7 @@ import logging
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import torch
 
 # 添加项目根目录到系统路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,7 +31,7 @@ def parse_args():
     
     parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL_PATH,
                         help="模型路径或名称")
-    parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none",
+    parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none",
                         help="量化方法")
     parser.add_argument("--attention", type=str, choices=SUPPORTED_ATTENTION_TYPES, default="standard",
                         help="注意力机制类型")
@@ -52,10 +53,12 @@ def parse_args():
                         help="输入长度")
     parser.add_argument("--output_length", type=int, default=128,
                         help="输出长度")
-    parser.add_argument("--num_runs", type=int, default=5,
+    parser.add_argument("--num_runs", type=int, default=3,
                         help="运行次数")
     parser.add_argument("--warmup_runs", type=int, default=2,
                         help="预热运行次数")
+    parser.add_argument("--max_test_cases", type=int, default=-1,
+                        help="最大测试用例数量，None或负数表示使用所有测试用例")
     parser.add_argument("--monitor", action="store_true",
                         help="是否监控硬件使用情况")
     parser.add_argument("--save_results", action="store_true",
@@ -102,6 +105,19 @@ def main():
             from transformers import AutoTokenizer
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
         
+        # 检查模型数据类型
+        param_dtypes = {p.dtype for p in model.parameters()}
+        logger.info(f"模型参数数据类型: {param_dtypes}")
+        
+        # 检查模型是否在GPU上
+        device_info = {p.device for p in model.parameters()}
+        logger.info(f"模型参数设备: {device_info}")
+        
+        # 检查GPU显存使用情况
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                logger.info(f"GPU {i} 显存使用情况: {torch.cuda.memory_allocated(i) / 1024**2:.2f} MB / {torch.cuda.memory_reserved(i) / 1024**2:.2f} MB")
+        
         # 替换注意力机制
         if args.attention != "standard":
             logger.info(f"替换注意力机制为: {args.attention}")
@@ -131,6 +147,7 @@ def main():
             "output_length": args.output_length,
             "num_runs": args.num_runs,
             "warmup_runs": args.warmup_runs,
+            "max_test_cases": args.max_test_cases,
             "prompts": ["你好，请介绍一下自己。"],  # 添加默认提示词
             "max_new_tokens": args.output_length,  # 使用output_length作为max_new_tokens
             "model_config": {

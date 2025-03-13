@@ -8,6 +8,7 @@ import logging
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from tqdm import tqdm
+from .test_cases import get_test_case, get_all_test_cases
 
 logger = logging.getLogger("attn_experiment")
 
@@ -30,6 +31,8 @@ class BenchmarkResult:
         self.config = {}
         self.summary = {}
         self.hardware_monitor = hardware_monitor
+        self.model_outputs = {}  # 存储每个测试用例的模型输出
+        self.case_results = {}  # 存储每个测试用例的具体结果
     
     def add_metric(self, name, value):
         """添加指标"""
@@ -72,15 +75,28 @@ class BenchmarkResult:
             "metrics": self.metrics,
             "config": self.config,
             "summary": self.summary,
+            "case_results": self.case_results,
+            "model_outputs": self.model_outputs,
             "model_info": {
                 "quantization": self.config.get("model_config", {}).get("quantization", "none"),
                 "attention_type": self.config.get("model_config", {}).get("attention_type", "standard")
             }
         }
+    
+    def add_model_output(self, case_name, prompt, output):
+        """添加模型输出"""
+        self.model_outputs[case_name] = {
+            "prompt": prompt,
+            "output": output
+        }
+    
+    def add_case_result(self, case_name, result):
+        """添加测试用例结果"""
+        self.case_results[case_name] = result
 
-def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, warmup_runs=2, hardware_monitor=None):
+def measure_performance(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, warmup_runs=2, hardware_monitor=None):
     """
-    测量生成延迟
+    测量模型性能（延迟、显存使用和生成速度）
     
     Args:
         model: 模型
@@ -92,10 +108,9 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
         hardware_monitor: 可选的硬件监控器实例
     
     Returns:
-        latency: 平均延迟（毫秒）
-        tokens_per_second: 平均生成速度（token/s）
+        tuple: (平均延迟, 平均生成速度, 显存使用, 模型输出)
     """
-    logger.info(f"测量生成延迟，提示文本: {prompt}")
+    logger.info(f"测量性能，提示文本: {prompt}")
     
     # 编码输入
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -112,9 +127,16 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
                 top_k=None
             )
     
-    # 测量延迟
+    # 测量延迟和显存
     latencies = []
     tokens_per_second_list = []
+    
+    # 记录初始显存使用
+    torch.cuda.synchronize()
+    initial_memory = torch.cuda.memory_allocated() / 1024 / 1024  # 转换为MB
+    
+    # 存储最后一次运行的输出
+    last_output = None
     
     for _ in range(num_runs):
         # 清除缓存
@@ -150,52 +172,9 @@ def measure_latency(model, tokenizer, prompt, max_new_tokens=20, num_runs=5, war
         if hardware_monitor is not None:
             hardware_monitor.add_model_metric("latency", latency)
             hardware_monitor.add_model_metric("tokens_per_second", tokens_per_second)
-    
-    # 计算平均值
-    avg_latency = np.mean(latencies)
-    avg_tokens_per_second = np.mean(tokens_per_second_list)
-    
-    logger.info(f"平均延迟: {avg_latency:.2f} ms")
-    logger.info(f"平均生成速度: {avg_tokens_per_second:.2f} token/s")
-    
-    return avg_latency, avg_tokens_per_second
-
-def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20, hardware_monitor=None):
-    """
-    测量显存使用
-    
-    Args:
-        model: 模型
-        tokenizer: 分词器
-        prompt: 提示文本
-        max_new_tokens: 最大生成token数
-        hardware_monitor: 可选的硬件监控器实例
-    
-    Returns:
-        memory_usage: 显存使用（MB）
-    """
-    logger.info(f"测量显存使用，提示文本: {prompt}")
-    
-    # 清除缓存
-    torch.cuda.empty_cache()
-    
-    # 记录初始显存使用
-    torch.cuda.synchronize()
-    initial_memory = torch.cuda.memory_allocated() / 1024 / 1024  # 转换为MB
-    
-    # 编码输入
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    
-    # 生成输出
-    with torch.no_grad():
-        _ = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            temperature=None,
-            top_p=None,
-            top_k=None
-        )
+        
+        # 保存最后一次运行的输出
+        last_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     # 记录最终显存使用
     torch.cuda.synchronize()
@@ -204,13 +183,20 @@ def measure_memory_usage(model, tokenizer, prompt, max_new_tokens=20, hardware_m
     # 计算显存使用
     memory_usage = final_memory - initial_memory
     
-    # 如果有硬件监控器，也向其添加指标
+    # 如果有硬件监控器，也向其添加显存指标
     if hardware_monitor is not None:
         hardware_monitor.add_model_metric("memory_usage", memory_usage)
     
-    logger.info(f"显存使用: {memory_usage:.2f} MB")
+    # 计算平均值
+    avg_latency = np.mean(latencies)
+    avg_tokens_per_second = np.mean(tokens_per_second_list)
     
-    return memory_usage
+    logger.info(f"平均延迟: {avg_latency:.2f} ms")
+    logger.info(f"平均生成速度: {avg_tokens_per_second:.2f} token/s")
+    logger.info(f"显存使用: {memory_usage:.2f} MB")
+    logger.info(f"模型输出: {last_output}")
+    
+    return avg_latency, avg_tokens_per_second, memory_usage, last_output
 
 def calculate_perplexity(model, tokenizer, text, stride=512, hardware_monitor=None):
     """
@@ -288,66 +274,66 @@ def run_benchmark(model, tokenizer, config, hardware_monitor=None):
     Args:
         model: 模型
         tokenizer: 分词器
-        config: 配置
+        config: 配置字典，可以包含以下键：
+            - max_test_cases: 最大测试用例数量，默认为3
+            - num_runs: 每个测试运行次数
+            - warmup_runs: 预热运行次数
+            - stride: 计算困惑度时的步长
         hardware_monitor: 可选的硬件监控器实例
     
     Returns:
-        result: 基准测试结果
+        BenchmarkResult: 测试结果
     """
-    logger.info(f"开始运行基准测试")
-    
-    # 创建结果对象
-    result = BenchmarkResult(hardware_monitor=hardware_monitor)
+    result = BenchmarkResult(hardware_monitor)
     result.set_config(config)
     
-    # 获取配置
-    prompts = config.get("prompts", ["你好，请介绍一下自己。"])
-    max_new_tokens = config.get("max_new_tokens", 20)
-    num_runs = config.get("num_runs", 5)
-    warmup_runs = config.get("warmup_runs", 2)
+    # 获取测试用例，默认最多使用3个
+    max_test_cases = config.get("max_test_cases", 3)
+    test_cases = get_all_test_cases(max_test_cases)
     
-    # 测量延迟和生成速度
-    for prompt in prompts:
-        latency, tokens_per_second = measure_latency(
-            model=model,
-            tokenizer=tokenizer,
-            prompt=prompt,
-            max_new_tokens=max_new_tokens,
-            num_runs=num_runs,
-            warmup_runs=warmup_runs,
+    for case in test_cases:
+        logger.info(f"运行测试用例: {case['name']}")
+        logger.info(f"描述: {case['description']}")
+        
+        # 测量性能（延迟、显存使用和生成速度）
+        latency, tokens_per_second, memory_usage, model_output = measure_performance(
+            model,
+            tokenizer,
+            case["prompt"],
+            max_new_tokens=case["max_new_tokens"],
+            num_runs=config.get("num_runs", 5),
+            warmup_runs=config.get("warmup_runs", 2),
             hardware_monitor=hardware_monitor
         )
         
+        # 计算困惑度
+        perplexity = calculate_perplexity(
+            model,
+            tokenizer,
+            case["prompt"],
+            stride=config.get("stride", 512),
+            hardware_monitor=hardware_monitor
+        )
+        
+        # 记录结果
         result.add_metric("latency", latency)
         result.add_metric("tokens_per_second", tokens_per_second)
-    
-    # 测量显存使用
-    for prompt in prompts:
-        memory_usage = measure_memory_usage(
-            model=model,
-            tokenizer=tokenizer,
-            prompt=prompt,
-            max_new_tokens=max_new_tokens,
-            hardware_monitor=hardware_monitor
-        )
-        
         result.add_metric("memory_usage", memory_usage)
+        result.add_metric("perplexity", perplexity)
+        
+        # 记录模型输出
+        result.add_model_output(case["name"], case["prompt"], model_output)
+        
+        # 记录每个测试用例的具体结果
+        result.add_case_result(case["name"], {
+            "latency": latency,
+            "tokens_per_second": tokens_per_second,
+            "memory_usage": memory_usage,
+            "perplexity": perplexity,
+            "model_output": model_output
+        })
     
-    # 计算困惑度
-    if "perplexity_texts" in config:
-        for text in config["perplexity_texts"]:
-            perplexity = calculate_perplexity(
-                model=model,
-                tokenizer=tokenizer,
-                text=text,
-                hardware_monitor=hardware_monitor
-            )
-            
-            result.add_metric("perplexity", perplexity)
-    
-    # 计算摘要
+    # 计算总体摘要
     result.compute_summary()
-    
-    logger.info(f"基准测试完成，摘要: {result.summary}")
     
     return result 

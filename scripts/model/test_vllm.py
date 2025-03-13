@@ -24,7 +24,7 @@ def parse_args():
     
     parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL_PATH,
                         help="模型路径或名称")
-    parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq"], default="none",
+    parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none",
                         help="量化方式")
     parser.add_argument("--prompt", type=str, default="你好，请介绍一下自己。",
                         help="测试提示词")

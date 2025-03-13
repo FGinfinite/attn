@@ -1,11 +1,12 @@
 """
-模型量化脚本，用于将模型量化为AWQ或GPTQ格式
+模型量化脚本，用于将模型量化为AWQ、GPTQ或FP16格式
 """
 
 import os
 import sys
 import argparse
 import logging
+import torch
 from pathlib import Path
 
 # 添加项目根目录到系统路径
@@ -19,13 +20,23 @@ from src.utils.model_utils import load_model_and_tokenizer, verify_model
 from src.utils.hardware_monitor import HardwareMonitor
 from src.quantization.quant_utils import quantize_model, load_quantized_model, check_quantization_error
 
+def log_gpu_memory_usage(logger, stage=""):
+    """记录GPU显存使用情况"""
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            allocated = torch.cuda.memory_allocated(i) / 1024**2
+            reserved = torch.cuda.memory_reserved(i) / 1024**2
+            logger.info(f"{stage} - GPU {i} 显存使用情况: {allocated:.2f} MB / {reserved:.2f} MB")
+    else:
+        logger.info(f"{stage} - 没有可用的GPU")
+
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="模型量化脚本")
     
     parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL_PATH,
                         help="模型路径或名称")
-    parser.add_argument("--quant", type=str, choices=["awq", "gptq"], default="awq",
+    parser.add_argument("--quant", type=str, choices=["awq", "gptq", "fp16", "bf16"], default="awq",
                         help="量化方法")
     parser.add_argument("--output_dir", type=str, default=None,
                         help="量化模型输出目录，默认为model_path-{quant}")
@@ -71,9 +82,19 @@ def main():
         logger.info("硬件监控已启动")
     
     try:
+        # 记录初始GPU显存使用情况
+        log_gpu_memory_usage(logger, "初始状态")
+        
         # 加载原始模型和tokenizer
         logger.info("加载原始模型和tokenizer...")
         original_model, tokenizer = load_model_and_tokenizer(args.model_path)
+        
+        # 记录原始模型加载后的GPU显存使用情况
+        log_gpu_memory_usage(logger, "原始模型加载后")
+        
+        # 检查原始模型的数据类型
+        original_dtypes = {p.dtype for p in original_model.parameters()}
+        logger.info(f"原始模型参数数据类型: {original_dtypes}")
         
         # 验证原始模型
         logger.info("验证原始模型...")
@@ -84,16 +105,29 @@ def main():
         logger.info(f"设置{args.quant}量化配置...")
         if args.quant == "awq":
             quant_config = AWQ_CONFIG
-        else:  # gptq
+        elif args.quant == "gptq":
             quant_config = GPTQ_CONFIG
+        else:  # fp16
+            quant_config = None
         
         # 量化模型
         logger.info(f"开始{args.quant}量化...")
-        quantize_model(original_model, tokenizer, args.quant, quant_config, args.output_dir)
+        quantized_model = quantize_model(original_model, tokenizer, args.quant, quant_config, args.output_dir)
         
-        # 加载量化后的模型
-        logger.info("加载量化后的模型...")
-        quantized_model = load_quantized_model(args.output_dir, args.quant)
+        # 记录量化后的GPU显存使用情况
+        log_gpu_memory_usage(logger, "量化后")
+        
+        # 检查量化后模型的数据类型
+        quantized_dtypes = {p.dtype for p in quantized_model.parameters()}
+        logger.info(f"量化后模型参数数据类型: {quantized_dtypes}")
+        
+        # 释放原始模型内存
+        logger.info("释放原始模型内存...")
+        del original_model
+        torch.cuda.empty_cache()
+        
+        # 记录释放原始模型后的GPU显存使用情况
+        log_gpu_memory_usage(logger, "释放原始模型后")
         
         # 验证量化后的模型
         logger.info("验证量化后的模型...")
@@ -102,8 +136,16 @@ def main():
         
         # 检查量化误差
         logger.info("检查量化误差...")
+        
+        # 重新加载原始模型用于比较
+        logger.info("重新加载原始模型用于比较...")
+        original_model, _ = load_model_and_tokenizer(args.model_path)
+        
         error_metrics = check_quantization_error(original_model, quantized_model, tokenizer, args.prompt)
         logger.info(f"量化误差指标: {error_metrics}")
+        
+        # 最终GPU显存使用情况
+        log_gpu_memory_usage(logger, "最终状态")
         
         logger.info("模型量化成功")
     
