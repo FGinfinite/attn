@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--output_lengths", type=str, default="128",
                         help="输出长度列表，用逗号分隔")
     parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     parser.add_argument("--save_results", action="store_true", help="是否保存结果")
     parser.add_argument("--results_dir", type=str, default="data/results", help="结果保存目录")
     
@@ -107,6 +108,7 @@ def main():
         f.write(f"批处理大小: {args.batch_sizes}\n")
         f.write(f"输入长度: {args.input_lengths}\n")
         f.write(f"输出长度: {args.output_lengths}\n")
+        f.write(f"使用FLOPs分析器: {args.flops_profiler}\n")
         f.write("-" * 50 + "\n\n")
     
     # 运行测试
@@ -139,6 +141,9 @@ def main():
                         
                         if args.monitor:
                             command.append("--monitor")
+                        
+                        if args.flops_profiler:
+                            command.append("--flops_profiler")
                         
                         if args.save_results:
                             command.append("--save_results")

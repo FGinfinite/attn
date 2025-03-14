@@ -148,16 +148,8 @@ def main():
         
         # 如果启用了FLOPs分析器，进行静态分析
         if flops_profiler:
-            logger.info("开始进行模型FLOPs静态分析...")
-            # 设置适当的输入形状，考虑到batch_size和input_length
-            input_shape = (args.batch_size, args.input_length)
-            flops, macs, params, results = flops_profiler.profile_model_statistics(
-                model=model,
-                input_shape=input_shape,
-                detailed=True,
-                warm_up=2
-            )
-            logger.info(f"模型静态分析结果: FLOPs={flops}, MACs={macs}, 参数量={params}")
+            logger.info("初始化FLOPs分析器...")
+            # 删除静态分析部分代码
         
         # 创建基准测试配置
         benchmark_config = {
@@ -232,13 +224,6 @@ def main():
             df.to_csv(csv_path, index=False, encoding='utf-8')
             
             logger.info(f"摘要已保存到: {csv_path}")
-            
-            # 如果有FLOPs分析结果，单独保存
-            if flops_profiler and hasattr(flops_profiler, 'model_stats') and flops_profiler.model_stats:
-                flops_path = results_dir / f"{result_filename}_flops.json"
-                with open(flops_path, "w", encoding='utf-8') as f:
-                    json.dump(flops_profiler.model_stats, f, indent=2, ensure_ascii=False)
-                logger.info(f"FLOPs分析结果已保存到: {flops_path}")
         
         logger.info("基准测试成功")
     

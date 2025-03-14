@@ -12,7 +12,6 @@ from typing import Dict, Optional, List, Union, Tuple
 
 # 导入DeepSpeed的Flops Profiler
 try:
-    from deepspeed.profiling.flops_profiler import get_model_profile
     from deepspeed.profiling.flops_profiler import FlopsProfiler
     DEEPSPEED_AVAILABLE = True
 except ImportError:
@@ -42,77 +41,6 @@ class FlopsProfilerWrapper:
             self.available = True
             
         self.flops_profiler = None
-        self.model_stats = {}
-    
-    def profile_model_statistics(self, model, input_shape=(1, 512), input_type=torch.LongTensor,
-                                detailed=False, warm_up=1, as_string=True, print_results=True):
-        """
-        静态分析模型参数量和理论FLOPs
-        
-        Args:
-            model: 要分析的模型
-            input_shape: 输入形状，默认为(1, 512)
-            input_type: 输入类型，默认为torch.LongTensor
-            detailed: 是否输出详细信息
-            warm_up: 预热次数
-            as_string: 是否将结果转换为字符串
-            print_results: 是否打印结果
-            
-        Returns:
-            tuple: (flops, macs, params, results)
-        """
-        if not self.available:
-            logger.warning("DeepSpeed Flops Profiler不可用")
-            return None, None, None, None
-        
-        try:
-            logger.info(f"开始分析模型架构，输入形状: {input_shape}")
-            
-            
-            # 获取模型配置
-            flops, macs, params, results = get_model_profile(
-                model=model,
-                input_shape=input_shape,
-                detailed=detailed,
-                warm_up=warm_up,
-                as_string=as_string,
-                print_profile=print_results
-            )
-            
-            logger.info(f"模型静态分析完成: FLOPs={flops}, MACs={macs}, 参数量={params}")
-            
-            # 保存结果
-            self.model_stats = {
-                "flops": flops,
-                "macs": macs,
-                "params": params,
-                "detailed_results": results
-            }
-            
-            # 如果有硬件监控器，添加指标
-            if self.hardware_monitor is not None:
-                # 将字符串转换为数值（如果需要）
-                if as_string and isinstance(flops, str):
-                    try:
-                        flops_val = self._parse_flops_string(flops)
-                        macs_val = self._parse_flops_string(macs)
-                        params_val = self._parse_flops_string(params)
-                        
-                        self.hardware_monitor.add_model_metric("model_flops", flops_val)
-                        self.hardware_monitor.add_model_metric("model_macs", macs_val)
-                        self.hardware_monitor.add_model_metric("model_params", params_val)
-                    except Exception as e:
-                        logger.error(f"解析FLOPs字符串出错: {str(e)}")
-                else:
-                    self.hardware_monitor.add_model_metric("model_flops", flops)
-                    self.hardware_monitor.add_model_metric("model_macs", macs)
-                    self.hardware_monitor.add_model_metric("model_params", params)
-            
-            return flops, macs, params, results
-        
-        except Exception as e:
-            logger.error(f"分析模型静态FLOPs出错: {str(e)}")
-            return None, None, None, None
     
     def start_profiling(self, model):
         """
@@ -154,21 +82,35 @@ class FlopsProfilerWrapper:
             self.flops_profiler.stop_profile()
             
             # 获取统计信息
-            flops = self.flops_profiler.get_total_flops()
-            macs = self.flops_profiler.get_total_macs()
-            params = self.flops_profiler.get_total_params()
-            forward_elapsed_time = self.flops_profiler.get_total_duration()
-            flops_per_second = flops / forward_elapsed_time
+            try:
+                flops = self.flops_profiler.get_total_flops()
+                macs = self.flops_profiler.get_total_macs()
+                params = self.flops_profiler.get_total_params()
+                forward_elapsed_time = self.flops_profiler.get_total_duration()
+                flops_per_second = flops / forward_elapsed_time
+            except AttributeError as ae:
+                # 处理 '__flops__' 属性不存在的情况
+                logger.warning(f"获取FLOPs统计数据时出现属性错误: {str(ae)}")
+                logger.warning("可能是模型结构与DeepSpeed Flops Profiler不完全兼容")
+                # 设置默认值
+                flops = 0
+                macs = 0
+                params = 0
+                forward_elapsed_time = 0.001  # 避免除以零
+                flops_per_second = 0
             
-            # 如果需要，打印结果
-            if print_results:
-                self.flops_profiler.print_model_profile(
-                    profile_step=1,
-                    module_depth=-1,
-                    top_modules=3,
-                    detailed=True,
-                    output_file=None
-                )
+            try:
+                # 如果需要，打印结果
+                if print_results:
+                    self.flops_profiler.print_model_profile(
+                        profile_step=1,
+                        module_depth=-1,
+                        top_modules=3,
+                        detailed=True,
+                        output_file=None
+                    )
+            except Exception as e:
+                logger.warning(f"打印模型分析结果出错: {str(e)}")
             
             # 收集结果
             results = {
@@ -200,8 +142,13 @@ class FlopsProfilerWrapper:
                 self.hardware_monitor.add_model_metric("forward_elapsed_time", forward_elapsed_time)
                 self.hardware_monitor.add_model_metric("flops_per_second", flops_per_second)
             
-            # 重置分析器
-            self.flops_profiler.end_profile()
+            try:
+                # 重置分析器
+                self.flops_profiler.end_profile()
+            except Exception as e:
+                logger.warning(f"重置FLOPs分析器出错: {str(e)}")
+            finally:
+                self.flops_profiler = None
             
             return {
                 "numeric": results,
@@ -210,6 +157,8 @@ class FlopsProfilerWrapper:
         
         except Exception as e:
             logger.error(f"停止FLOPs分析出错: {str(e)}")
+            # 确保分析器被清理
+            self.flops_profiler = None
             return None
     
     def _format_count(self, count):

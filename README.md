@@ -104,7 +104,7 @@ python main.py benchmark --model_path Qwen/Qwen2.5-3B-Instruct --quant none --at
 ### 6. Run Automated Tests
 
 ```bash
-python main.py auto_test --model_path Qwen/Qwen2.5-3B-Instruct --quant_types none --attention_types standard,sparse,linear --batch_sizes 1 --input_lengths 512,1024,2048 --output_lengths 128 --monitor --save_results
+python main.py auto_test --model_path Qwen/Qwen2.5-3B-Instruct --quant_types fp16 --attention_types standard,sparse,linear,reformer,linformer,longformer,realformer --batch_sizes 1 --input_lengths 4096 --output_lengths 128 --monitor --save_results
 ```
 
 ### 7. Analyze Results

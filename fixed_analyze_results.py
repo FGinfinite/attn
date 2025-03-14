@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 # 添加项目根目录到系统路径
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import EXPERIMENT_CONFIG, LOGGING_CONFIG
 from src.utils.logger import setup_logger
@@ -55,17 +55,8 @@ def load_results(results_dir):
                 config = data.get("config", {})
                 summary = data.get("summary", {})
                 
-                # 提取metrics中的FLOPs数据
-                metrics = data.get("metrics", {})
-                flops_data = {}
-                for key, value in metrics.items():
-                    if key.startswith("flops_"):
-                        # 对于FLOPs数据，取平均值作为_mean字段
-                        if isinstance(value, list) and value:
-                            flops_data[f"{key}_mean"] = sum(value) / len(value)
-                
-                # 合并配置、摘要和FLOPs数据
-                result = {**config, **summary, **flops_data}
+                # 合并配置和摘要
+                result = {**config, **summary}
                 results.append(result)
         
         except Exception as e:

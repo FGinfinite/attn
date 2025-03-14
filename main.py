@@ -106,7 +106,7 @@ def parse_args():
     analyze_parser = subparsers.add_parser("analyze", help="分析结果")
     analyze_parser.add_argument("--results_dir", type=str, default="data/results", help="结果目录")
     analyze_parser.add_argument("--output_dir", type=str, default="analysis", help="输出目录")
-    analyze_parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity", help="要分析的指标，用逗号分隔")
+    analyze_parser.add_argument("--metrics", type=str, default="latency,tokens_per_second,memory_usage,perplexity,flops_flops,flops_macs,flops_params,flops_per_second", help="要分析的指标，用逗号分隔")
     
     # 测试微调模型命令
     test_finetune_parser = subparsers.add_parser("test_finetune", help="测试微调前后的模型效果差异")
