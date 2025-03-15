@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-微调Qwen2.5模型脚本
+Fine-tuning script for Qwen2.5 model
 """
 
 import os
@@ -32,6 +32,7 @@ import psutil
 import GPUtil
 import threading
 import time
+import matplotlib
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import sys
@@ -40,13 +41,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.utils.logger import setup_logger
 from scripts.model.generate_finetune_data import generate_dataset
+from src.utils.flops_profiler import FlopsProfilerWrapper
 
 # 设置日志记录器
 logger = logging.getLogger("attn_experiment")
 
 class ResourceMonitor:
     """
-    资源监控器，监控CPU、GPU、内存使用情况
+    Resource monitor to track CPU, GPU, and memory usage
     """
     def __init__(self, interval=1.0, log_dir="logs/monitor"):
         self.interval = interval
@@ -60,67 +62,67 @@ class ResourceMonitor:
         self.timestamps = []
         self.start_time = None
         
-        # 添加对模型性能指标的支持
-        self.latency = []  # 延迟（毫秒）
-        self.tokens_per_second = []  # 生成速度（token/s）
-        self.perplexity = []  # 困惑度
+        # Support for model performance metrics
+        self.latency = []  # Latency (ms)
+        self.tokens_per_second = []  # Generation speed (tokens/s)
+        self.perplexity = []  # Perplexity
         
-        # 确保日志目录存在
+        # Ensure log directory exists
         os.makedirs(log_dir, exist_ok=True)
     
     def _monitor(self):
-        """监控线程的主函数"""
+        """Main function for the monitoring thread"""
         self.start_time = time.time()
         while self.running:
             timestamp = time.time() - self.start_time
             
-            # 获取CPU使用情况
+            # Get CPU usage
             cpu_percent = psutil.cpu_percent(interval=None)
             
-            # 获取内存使用情况
+            # Get memory usage
             memory_info = psutil.virtual_memory()
             memory_percent = memory_info.percent
             
-            # 获取GPU使用情况
+            # Get GPU usage
             try:
                 gpus = GPUtil.getGPUs()
                 if gpus:
-                    gpu = gpus[0]  # 获取第一个GPU
+                    gpu = gpus[0]  # Get the first GPU
                     gpu_load = gpu.load * 100.0
                     gpu_memory_percent = gpu.memoryUtil * 100.0
                 else:
                     gpu_load = 0.0
                     gpu_memory_percent = 0.0
             except Exception as e:
-                logger.warning(f"获取GPU信息时出错: {e}")
+                logger.warning(f"Error getting GPU information: {e}")
                 gpu_load = 0.0
                 gpu_memory_percent = 0.0
             
-            # 记录数据
+            # Record data
             self.timestamps.append(timestamp)
             self.cpu_usages.append(cpu_percent)
             self.memory_usages.append(memory_percent)
             self.gpu_usages.append(gpu_load)
             self.gpu_memory_usages.append(gpu_memory_percent)
             
-            # 每隔一段时间记录一次日志
+            # Log periodically
             if len(self.timestamps) % 10 == 0:
-                logger.info(f"资源监控 - CPU: {cpu_percent:.1f}%, 内存: {memory_percent:.1f}%, "
-                           f"GPU负载: {gpu_load:.1f}%, GPU内存: {gpu_memory_percent:.1f}%")
+                logger.info(f"Resource monitoring - CPU: {cpu_percent:.1f}%, Memory: {memory_percent:.1f}%, "
+                           f"GPU Load: {gpu_load:.1f}%, GPU Memory: {gpu_memory_percent:.1f}%")
             
-            # 休眠一段时间
+            # Sleep for a while
             time.sleep(self.interval)
     
     def add_model_metric(self, metric_name, value):
         """
-        添加模型性能指标
+        Add a model performance metric
         
         Args:
-            metric_name: 指标名称，如'latency', 'tokens_per_second', 'perplexity'
-            value: 指标值
+            metric_name: Metric name, e.g., 'latency', 'tokens_per_second', 'perplexity', 'train_loss'
+            value: Metric value
         """
         if not self.running:
-            logger.warning(f"监控器未运行，无法添加指标: {metric_name}={value}")
+            logger.warning(f"Monitor is not running, cannot add metric: {metric_name}={value}")
             return
             
         if metric_name == "latency":
@@ -129,53 +131,76 @@ class ResourceMonitor:
             self.tokens_per_second.append(value)
         elif metric_name == "perplexity":
             self.perplexity.append(value)
+        elif metric_name == "train_loss":
+            # Support for training loss
+            if not hasattr(self, 'train_loss'):
+                self.train_loss = []
+            self.train_loss.append(value)
+        # Support for FLOPs analyzer performance metrics
+        elif metric_name in ["dynamic_flops", "dynamic_macs", "dynamic_params", 
+                            "forward_elapsed_time", "flops_per_second"]:
+            # Dynamically create lists for each metric type
+            if not hasattr(self, metric_name):
+                setattr(self, metric_name, [])
+            # Get the list for this metric and add the value
+            metric_list = getattr(self, metric_name)
+            metric_list.append(value)
         else:
-            logger.warning(f"未知的性能指标: {metric_name}")
+            logger.warning(f"Unknown performance metric: {metric_name}")
     
     def start(self):
-        """开始监控"""
+        """Start monitoring"""
         if not self.running:
             self.running = True
             self.thread = threading.Thread(target=self._monitor)
             self.thread.daemon = True
             self.thread.start()
-            logger.info("资源监控已启动")
+            logger.info("Resource monitoring started")
     
     def stop(self):
-        """停止监控"""
+        """Stop monitoring"""
         if self.running:
             self.running = False
             if self.thread:
                 self.thread.join(timeout=2.0)
-            logger.info("资源监控已停止")
+            logger.info("Resource monitoring stopped")
             
-            # 生成监控报告
+            # Generate monitoring report
             self._generate_report()
     
     def _generate_report(self):
-        """生成资源使用报告"""
-        # 保存监控数据到CSV文件
+        """Generate resource usage report"""
+        # Save monitoring data to CSV file
         data_file = os.path.join(self.log_dir, "resource_usage.csv")
         with open(data_file, "w", encoding="utf-8") as f:
-            # 添加表头，包含模型性能指标
+            # Add headers, including model performance metrics
             headers = ["timestamp", "cpu_percent", "memory_percent", "gpu_load", "gpu_memory_percent"]
             
-            # 如果有模型性能指标数据，添加相应的列
+            # If we have model performance metrics, add corresponding columns
             if self.latency:
                 headers.append("latency")
             if self.tokens_per_second:
                 headers.append("tokens_per_second")
             if self.perplexity:
                 headers.append("perplexity")
+            if hasattr(self, 'train_loss') and self.train_loss:
+                headers.append("train_loss")
+            
+            # Add FLOPs analyzer performance metrics
+            flops_metrics = ["dynamic_flops", "dynamic_macs", "dynamic_params", 
+                            "forward_elapsed_time", "flops_per_second"]
+            for metric in flops_metrics:
+                if hasattr(self, metric) and getattr(self, metric):
+                    headers.append(metric)
                 
             f.write(",".join(headers) + "\n")
             
-            # 写入所有数据
+            # Write all data
             for i in range(len(self.timestamps)):
                 line = f"{self.timestamps[i]:.2f},{self.cpu_usages[i]:.2f},{self.memory_usages[i]:.2f}," \
                       f"{self.gpu_usages[i]:.2f},{self.gpu_memory_usages[i]:.2f}"
                 
-                # 添加模型性能指标（如果有）
+                # Add model performance metrics (if available)
                 if self.latency and i < len(self.latency):
                     line += f",{self.latency[i]:.2f}"
                 elif self.latency:
@@ -191,12 +216,27 @@ class ResourceMonitor:
                 elif self.perplexity:
                     line += ","
                 
+                if hasattr(self, 'train_loss') and self.train_loss:
+                    if i < len(self.train_loss):
+                        line += f",{self.train_loss[i]:.4f}"
+                    else:
+                        line += ","
+                
+                # Add FLOPs analyzer performance metrics
+                for metric in flops_metrics:
+                    if hasattr(self, metric) and getattr(self, metric):
+                        metric_list = getattr(self, metric)
+                        if i < len(metric_list):
+                            line += f",{metric_list[i]}"
+                        else:
+                            line += ","
+                
                 f.write(line + "\n")
         
-        # 绘制监控图表
-        num_plots = 4  # 基础图表数量（CPU, 内存, GPU, GPU内存）
+        # Plot monitoring charts
+        num_plots = 4  # Base number of plots (CPU, memory, GPU, GPU memory)
         
-        # 确定需要绘制的额外图表数量
+        # Determine the number of additional plots needed
         if self.latency:
             num_plots += 1
         if self.tokens_per_second:
@@ -204,77 +244,175 @@ class ResourceMonitor:
         if self.perplexity:
             num_plots += 1
         
-        # 创建适当大小的图表
-        rows = (num_plots + 1) // 2  # 向上取整
+        # Add FLOPs analyzer metrics
+        flops_metrics = ["dynamic_flops", "dynamic_macs", "dynamic_params", 
+                        "forward_elapsed_time", "flops_per_second"]
+        for metric in flops_metrics:
+            if hasattr(self, metric) and getattr(self, metric) and len(getattr(self, metric)) > 0:
+                num_plots += 1
+        
+        # Add training loss
+        if hasattr(self, 'train_loss') and self.train_loss and len(self.train_loss) > 0:
+            num_plots += 1
+        
+        # 创建训练步骤索引 - 用于统一所有图表的横坐标
+        train_steps = None
+        if hasattr(self, 'train_loss') and self.train_loss:
+            # 如果有训练损失数据，使用其长度作为训练步数的参考
+            train_steps = len(self.train_loss)
+        
+        # 如果需要调整FLOPs分析数据的采样频率
+        flops_data_resampled = {}
+        for metric in flops_metrics:
+            if hasattr(self, metric) and getattr(self, metric) and len(getattr(self, metric)) > 0:
+                metric_data = getattr(self, metric)
+                if train_steps and len(metric_data) != train_steps:
+                    # 如果FLOPs数据点数与训练步数不一致，进行重采样
+                    # 方法1：保留前train_steps个点
+                    if len(metric_data) > train_steps:
+                        flops_data_resampled[metric] = metric_data[:train_steps]
+                    # 方法2：如果数据点不足，则重复最后一个值
+                    else:
+                        resampled = list(metric_data)
+                        while len(resampled) < train_steps:
+                            resampled.append(resampled[-1])
+                        flops_data_resampled[metric] = resampled
+        
+        # Create appropriately sized figure
+        rows = (num_plots + 1) // 2  # Round up
         plt.figure(figsize=(14, 5 * rows))
         
-        # CPU使用率
+        # CPU usage
         plt.subplot(rows, 2, 1)
         plt.plot(self.timestamps, self.cpu_usages)
-        plt.title("CPU使用率")
-        plt.xlabel("时间(秒)")
-        plt.ylabel("使用率(%)")
+        plt.title("CPU Usage")
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Usage (%)")
         plt.grid(True)
         
-        # 内存使用率
+        # Memory usage
         plt.subplot(rows, 2, 2)
         plt.plot(self.timestamps, self.memory_usages)
-        plt.title("内存使用率")
-        plt.xlabel("时间(秒)")
-        plt.ylabel("使用率(%)")
+        plt.title("Memory Usage")
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Usage (%)")
         plt.grid(True)
         
-        # GPU使用率
+        # GPU usage
         plt.subplot(rows, 2, 3)
         plt.plot(self.timestamps, self.gpu_usages)
-        plt.title("GPU使用率")
-        plt.xlabel("时间(秒)")
-        plt.ylabel("使用率(%)")
+        plt.title("GPU Usage")
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Usage (%)")
         plt.grid(True)
         
-        # GPU内存使用率
+        # GPU memory usage
         plt.subplot(rows, 2, 4)
         plt.plot(self.timestamps, self.gpu_memory_usages)
-        plt.title("GPU内存使用率")
-        plt.xlabel("时间(秒)")
-        plt.ylabel("使用率(%)")
+        plt.title("GPU Memory Usage")
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Usage (%)")
         plt.grid(True)
         
-        # 模型延迟
+        # 生成用于步骤图表的X轴
+        if train_steps:
+            steps_x = np.arange(train_steps)
+        
+        # Model latency
         plot_idx = 5
         if self.latency:
             plt.subplot(rows, 2, plot_idx)
-            plt.plot(range(len(self.latency)), self.latency)
-            plt.title("模型延迟")
-            plt.xlabel("步骤")
-            plt.ylabel("延迟(毫秒)")
+            if train_steps and len(self.latency) > train_steps:
+                # 如果数据点数超过训练步数，只绘制前train_steps个点
+                plt.plot(steps_x, self.latency[:train_steps])
+            else:
+                plt.plot(range(len(self.latency)), self.latency)
+            plt.title("Model Latency")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Latency (ms)")
             plt.grid(True)
             plot_idx += 1
         
-        # 模型生成速度
+        # Model generation speed
         if self.tokens_per_second:
             plt.subplot(rows, 2, plot_idx)
-            plt.plot(range(len(self.tokens_per_second)), self.tokens_per_second)
-            plt.title("模型生成速度")
-            plt.xlabel("步骤")
-            plt.ylabel("Tokens/秒")
+            if train_steps and len(self.tokens_per_second) > train_steps:
+                plt.plot(steps_x, self.tokens_per_second[:train_steps])
+            else:
+                plt.plot(range(len(self.tokens_per_second)), self.tokens_per_second)
+            plt.title("Generation Speed")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Tokens/sec")
             plt.grid(True)
             plot_idx += 1
         
-        # 模型困惑度
+        # Model perplexity
         if self.perplexity:
             plt.subplot(rows, 2, plot_idx)
-            plt.plot(range(len(self.perplexity)), self.perplexity)
-            plt.title("模型困惑度")
-            plt.xlabel("步骤")
-            plt.ylabel("困惑度")
+            if train_steps and len(self.perplexity) > train_steps:
+                plt.plot(steps_x, self.perplexity[:train_steps])
+            else:
+                plt.plot(range(len(self.perplexity)), self.perplexity)
+            plt.title("Model Perplexity")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Perplexity")
             plt.grid(True)
+            plot_idx += 1
+        
+        # Training loss
+        if hasattr(self, 'train_loss') and self.train_loss and len(self.train_loss) > 0:
+            plt.subplot(rows, 2, plot_idx)
+            plt.plot(steps_x, self.train_loss)
+            plt.title("Training Loss")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Loss Value")
+            plt.grid(True)
+            plot_idx += 1
+        
+        # FLOPs analyzer metrics
+        for metric in flops_metrics:
+            if hasattr(self, metric) and getattr(self, metric) and len(getattr(self, metric)) > 0:
+                plt.subplot(rows, 2, plot_idx)
+                
+                # 使用重采样的数据或原始数据
+                if metric in flops_data_resampled:
+                    metric_data = flops_data_resampled[metric]
+                    plt.plot(steps_x, metric_data)
+                else:
+                    metric_data = getattr(self, metric)
+                    if train_steps and len(metric_data) > train_steps:
+                        plt.plot(steps_x, metric_data[:train_steps])
+                    else:
+                        plt.plot(range(len(metric_data)), metric_data)
+                
+                if metric == "dynamic_flops":
+                    plt.title("Dynamic FLOPs")
+                    plt.ylabel("FLOPs")
+                elif metric == "dynamic_macs":
+                    plt.title("Dynamic MACs")
+                    plt.ylabel("MACs")
+                elif metric == "dynamic_params":
+                    plt.title("Dynamic Parameters")
+                    plt.ylabel("Parameters")
+                elif metric == "forward_elapsed_time":
+                    plt.title("Forward Time")
+                    plt.ylabel("Time (sec)")
+                elif metric == "flops_per_second":
+                    plt.title("FLOPs per Second")
+                    plt.ylabel("FLOPs/sec")
+                else:
+                    plt.title(f"{metric}")
+                    plt.ylabel("Value")
+                
+                plt.xlabel("Training Steps")
+                plt.grid(True)
+                plot_idx += 1
         
         plt.tight_layout()
         plt.savefig(os.path.join(self.log_dir, "resource_usage.png"))
         plt.close()
         
-        # 计算平均值和最大值
+        # Calculate averages and maximums
         avg_cpu = np.mean(self.cpu_usages)
         max_cpu = np.max(self.cpu_usages)
         avg_memory = np.mean(self.memory_usages)
@@ -284,7 +422,7 @@ class ResourceMonitor:
         avg_gpu_memory = np.mean(self.gpu_memory_usages)
         max_gpu_memory = np.max(self.gpu_memory_usages)
         
-        # 计算模型性能指标的统计值
+        # Calculate model performance metrics statistics
         avg_latency = np.mean(self.latency) if self.latency else None
         max_latency = np.max(self.latency) if self.latency else None
         avg_tokens_per_second = np.mean(self.tokens_per_second) if self.tokens_per_second else None
@@ -292,64 +430,107 @@ class ResourceMonitor:
         avg_perplexity = np.mean(self.perplexity) if self.perplexity else None
         min_perplexity = np.min(self.perplexity) if self.perplexity else None
         
-        # 保存摘要报告
+        # Calculate FLOPs analyzer performance metrics statistics
+        flops_metrics_stats = {}
+        flops_metrics = ["dynamic_flops", "dynamic_macs", "dynamic_params", 
+                         "forward_elapsed_time", "flops_per_second"]
+        for metric in flops_metrics:
+            if hasattr(self, metric) and getattr(self, metric):
+                metric_list = getattr(self, metric)
+                if metric_list:
+                    flops_metrics_stats[metric] = {
+                        "avg": np.mean(metric_list),
+                        "max": np.max(metric_list),
+                        "min": np.min(metric_list)
+                    }
+        
+        # Save summary report
         summary_file = os.path.join(self.log_dir, "resource_summary.txt")
         with open(summary_file, "w", encoding="utf-8") as f:
-            f.write("资源使用摘要报告\n")
-            f.write("=================\n\n")
-            f.write(f"监控持续时间: {self.timestamps[-1]:.2f} 秒\n\n")
-            f.write("CPU使用率:\n")
-            f.write(f"  平均: {avg_cpu:.2f}%\n")
-            f.write(f"  最大: {max_cpu:.2f}%\n\n")
-            f.write("内存使用率:\n")
-            f.write(f"  平均: {avg_memory:.2f}%\n")
-            f.write(f"  最大: {max_memory:.2f}%\n\n")
-            f.write("GPU使用率:\n")
-            f.write(f"  平均: {avg_gpu:.2f}%\n")
-            f.write(f"  最大: {max_gpu:.2f}%\n\n")
-            f.write("GPU内存使用率:\n")
-            f.write(f"  平均: {avg_gpu_memory:.2f}%\n")
-            f.write(f"  最大: {max_gpu_memory:.2f}%\n\n")
+            f.write("Resource Usage Summary Report\n")
+            f.write("============================\n\n")
+            f.write(f"Monitoring Duration: {self.timestamps[-1]:.2f} seconds\n\n")
+            f.write("CPU Usage:\n")
+            f.write(f"  Average: {avg_cpu:.2f}%\n")
+            f.write(f"  Maximum: {max_cpu:.2f}%\n\n")
+            f.write("Memory Usage:\n")
+            f.write(f"  Average: {avg_memory:.2f}%\n")
+            f.write(f"  Maximum: {max_memory:.2f}%\n\n")
+            f.write("GPU Usage:\n")
+            f.write(f"  Average: {avg_gpu:.2f}%\n")
+            f.write(f"  Maximum: {max_gpu:.2f}%\n\n")
+            f.write("GPU Memory Usage:\n")
+            f.write(f"  Average: {avg_gpu_memory:.2f}%\n")
+            f.write(f"  Maximum: {max_gpu_memory:.2f}%\n\n")
             
-            # 添加模型性能指标
+            # Add model performance metrics
             if avg_latency is not None:
-                f.write("模型延迟:\n")
-                f.write(f"  平均: {avg_latency:.2f} 毫秒\n")
-                f.write(f"  最大: {max_latency:.2f} 毫秒\n\n")
+                f.write("Model Latency:\n")
+                f.write(f"  Average: {avg_latency:.2f} ms\n")
+                f.write(f"  Maximum: {max_latency:.2f} ms\n\n")
             
             if avg_tokens_per_second is not None:
-                f.write("模型生成速度:\n")
-                f.write(f"  平均: {avg_tokens_per_second:.2f} tokens/秒\n")
-                f.write(f"  最小: {min_tokens_per_second:.2f} tokens/秒\n\n")
+                f.write("Generation Speed:\n")
+                f.write(f"  Average: {avg_tokens_per_second:.2f} tokens/sec\n")
+                f.write(f"  Minimum: {min_tokens_per_second:.2f} tokens/sec\n\n")
             
             if avg_perplexity is not None:
-                f.write("模型困惑度:\n")
-                f.write(f"  平均: {avg_perplexity:.2f}\n")
-                f.write(f"  最小: {min_perplexity:.2f}\n\n")
+                f.write("Model Perplexity:\n")
+                f.write(f"  Average: {avg_perplexity:.2f}\n")
+                f.write(f"  Minimum: {min_perplexity:.2f}\n\n")
             
-        logger.info(f"监控报告已生成到 {self.log_dir}")
+            # Add FLOPs analyzer performance metrics
+            for metric, stats in flops_metrics_stats.items():
+                if metric == "dynamic_flops":
+                    f.write("Dynamic FLOPs:\n")
+                elif metric == "dynamic_macs":
+                    f.write("Dynamic MACs:\n")
+                elif metric == "dynamic_params":
+                    f.write("Dynamic Parameters:\n")
+                elif metric == "forward_elapsed_time":
+                    f.write("Forward Time:\n")
+                elif metric == "flops_per_second":
+                    f.write("FLOPs per Second:\n")
+                else:
+                    f.write(f"{metric}:\n")
+                
+                f.write(f"  Average: {stats['avg']:.2f}\n")
+                f.write(f"  Maximum: {stats['max']:.2f}\n")
+                f.write(f"  Minimum: {stats['min']:.2f}\n\n")
+            
+            # Add training loss metrics
+            if hasattr(self, 'train_loss') and self.train_loss:
+                avg_train_loss = np.mean(self.train_loss)
+                min_train_loss = np.min(self.train_loss)
+                max_train_loss = np.max(self.train_loss)
+                f.write("Training Loss:\n")
+                f.write(f"  Average: {avg_train_loss:.4f}\n")
+                f.write(f"  Minimum: {min_train_loss:.4f}\n")
+                f.write(f"  Maximum: {max_train_loss:.4f}\n\n")
+        
+        logger.info(f"Monitoring report generated to {self.log_dir}")
         
         return data_file
 
 class QwenFinetuneDataset(Dataset):
     """
-    Qwen微调数据集类
+    Dataset class for Qwen fine-tuning
     """
     def __init__(self, data_path, tokenizer, max_length=2048):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.chat_format = self.get_chat_format()
         
-        # 加载数据
-        logger.info(f"从 {data_path} 加载数据集")
+        # Load data
+        logger.info(f"Loading dataset from {data_path}")
         with open(data_path, 'r', encoding='utf-8') as f:
             self.data = json.load(f)
         
-        logger.info(f"加载了 {len(self.data)} 个训练样本")
+        logger.info(f"Loaded {len(self.data)} training samples")
     
     def get_chat_format(self):
-        """获取Qwen2的对话格式"""
-        # 确保bos_token不为None
+        """Get Qwen2 chat format"""
+        # Ensure bos_token is not None
         bos_token = self.tokenizer.bos_token or ""
         eos_token = self.tokenizer.eos_token or ""
         
@@ -374,7 +555,7 @@ class QwenFinetuneDataset(Dataset):
         input_text = example.get("input", "")
         output = example["output"]
         
-        # 构建对话格式
+        # Build chat format
         if input_text:
             prompt = f"{self.chat_format['user_token']}{instruction}\n\n{input_text}{self.chat_format['user_token_end']}"
         else:
@@ -382,16 +563,16 @@ class QwenFinetuneDataset(Dataset):
         
         completion = f"{self.chat_format['assistant_token']}{output}{self.chat_format['assistant_token_end']}"
         
-        # 完整文本
+        # Full text
         full_text = self.chat_format["bos_token"] + prompt + completion
         
-        # 分词
+        # Tokenize
         tokenized = self.tokenizer(full_text, truncation=True, max_length=self.max_length, return_tensors="pt")
         input_ids = tokenized["input_ids"][0]
         attention_mask = tokenized["attention_mask"][0]
         
-        # 构建标签，仅对assistant部分计算损失
-        # 对于输入部分（prompt），将标签设为-100，这样不会计算损失
+        # Build labels, only compute loss for assistant part
+        # For input part (prompt), set labels to -100, which won't compute loss
         prompt_tokenized = self.tokenizer(prompt, truncation=True, max_length=self.max_length, return_tensors="pt")
         prompt_len = prompt_tokenized["input_ids"].shape[1]
         
@@ -404,187 +585,324 @@ class QwenFinetuneDataset(Dataset):
             "labels": labels
         }
 
+class CustomDataCollator:
+    """
+    Custom data collator to resolve warning about creating tensor from list of numpy arrays
+    """
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.padding = True
+        self.return_tensors = "pt"
+    
+    def __call__(self, features):
+        # Organize input IDs and attention masks
+        input_ids = [f["input_ids"] for f in features]
+        attention_mask = [f["attention_mask"] for f in features]
+        
+        # Get labels (if any)
+        if "labels" in features[0]:
+            labels = [f["labels"] for f in features]
+        else:
+            labels = None
+        
+        # Calculate max length
+        max_length = max(len(ids) for ids in input_ids)
+        
+        # Align lengths (padding)
+        padded_input_ids = []
+        padded_attention_mask = []
+        padded_labels = [] if labels else None
+        
+        pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        
+        for i, ids in enumerate(input_ids):
+            padding_length = max_length - len(ids)
+            
+            # Pad input IDs
+            if padding_length > 0:
+                # Check if ids is already a tensor
+                if isinstance(ids, torch.Tensor):
+                    ids_tensor = ids.clone().detach()
+                else:
+                    ids_tensor = torch.tensor(ids, dtype=torch.long)
+                
+                # Create padding tensor
+                padding = torch.ones(padding_length, dtype=torch.long) * pad_token_id
+                padded_ids = torch.cat([ids_tensor, padding])
+            else:
+                # If no padding needed, just use clone
+                if isinstance(ids, torch.Tensor):
+                    padded_ids = ids.clone().detach()
+                else:
+                    padded_ids = torch.tensor(ids, dtype=torch.long)
+            
+            padded_input_ids.append(padded_ids)
+            
+            # Pad attention masks
+            if padding_length > 0:
+                # Check if attention_mask[i] is already a tensor
+                if isinstance(attention_mask[i], torch.Tensor):
+                    mask_tensor = attention_mask[i].clone().detach()
+                else:
+                    mask_tensor = torch.tensor(attention_mask[i], dtype=torch.long)
+                
+                # Create padding tensor
+                padding = torch.zeros(padding_length, dtype=torch.long)
+                padded_mask = torch.cat([mask_tensor, padding])
+            else:
+                # If no padding needed, just use clone
+                if isinstance(attention_mask[i], torch.Tensor):
+                    padded_mask = attention_mask[i].clone().detach()
+                else:
+                    padded_mask = torch.tensor(attention_mask[i], dtype=torch.long)
+            
+            padded_attention_mask.append(padded_mask)
+            
+            # Pad labels (if any)
+            if labels:
+                label = labels[i]
+                if padding_length > 0:
+                    # Check if label is already a tensor
+                    if isinstance(label, torch.Tensor):
+                        label_tensor = label.clone().detach()
+                    else:
+                        label_tensor = torch.tensor(label, dtype=torch.long)
+                    
+                    # Create padding tensor, using -100
+                    padding = torch.ones(padding_length, dtype=torch.long) * -100
+                    padded_label = torch.cat([label_tensor, padding])
+                else:
+                    # If no padding needed, just use clone
+                    if isinstance(label, torch.Tensor):
+                        padded_label = label.clone().detach()
+                    else:
+                        padded_label = torch.tensor(label, dtype=torch.long)
+                
+                padded_labels.append(padded_label)
+        
+        # Convert to batch tensors
+        batch = {
+            "input_ids": torch.stack(padded_input_ids),
+            "attention_mask": torch.stack(padded_attention_mask),
+        }
+        
+        if padded_labels:
+            batch["labels"] = torch.stack(padded_labels)
+        
+        return batch
+
 def setup_lora_training(model, tokenizer, args):
     """
-    设置普通LoRA训练参数
+    Set up LoRA training parameters
     """
-    # LoRA配置
+    # LoRA configuration
     peft_config = LoraConfig(
-        r=16,                    # LoRA秩
-        lora_alpha=32,           # LoRA缩放因子
-        lora_dropout=0.05,       # LoRA dropout概率
-        bias="none",             # 是否为偏置添加LoRA
-        task_type="CAUSAL_LM",   # 任务类型
+        r=16,                    # LoRA rank
+        lora_alpha=32,           # LoRA scaling factor
+        lora_dropout=0.05,       # LoRA dropout probability
+        bias="none",             # Whether to add LoRA to bias
+        task_type="CAUSAL_LM",   # Task type
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],  # 要微调的模块
+                        "gate_proj", "up_proj", "down_proj"],  # Modules to fine-tune
     )
     
-    # 准备模型
+    # Prepare model
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
     
     return model
 
-def train_custom(model, tokenizer, dataset, args, monitor=None):
-    """
-    使用自定义训练循环进行微调
-    """
-    logger.info("开始自定义训练循环")
+def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=None):
+    """Custom training function"""
+    device = model.device
+    train_batch_size = args.batch_size
     
-    # 数据加载器
-    dataloader = DataLoader(
+    # Use our custom data collator
+    data_collator = CustomDataCollator(tokenizer)
+    
+    train_dataloader = DataLoader(
         dataset, 
-        batch_size=args.batch_size, 
+        batch_size=train_batch_size, 
+        collate_fn=data_collator, 
         shuffle=True
     )
     
-    # 设置设备
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    
-    # 设置优化器
+    # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
     
-    # 学习率调度器
-    num_training_steps = args.max_steps
-    num_warmup_steps = max(int(num_training_steps * 0.1), 10)
+    # Learning rate scheduler
+    total_steps = min(args.max_steps, len(train_dataloader))
+    warmup_steps = max(1, int(total_steps * 0.1))
     scheduler = get_linear_schedule_with_warmup(
         optimizer, 
-        num_warmup_steps=num_warmup_steps, 
-        num_training_steps=num_training_steps
+        num_warmup_steps=warmup_steps, 
+        num_training_steps=total_steps
     )
     
-    # 训练循环
+    # Training loop
     model.train()
-    global_step = 0
-    epoch = 0
     total_loss = 0
+    steps = 0
+    progress_bar = tqdm(total=total_steps, desc="Training")
     
-    progress_bar = tqdm(total=args.max_steps, desc=f"训练")
+    # Check if FLOPs profiler should be enabled
+    do_profile = flops_profiler is not None
     
-    while global_step < args.max_steps:
-        epoch += 1
-        logger.info(f"开始第 {epoch} 轮训练")
+    # Initialize a counter for limiting profiling frequency
+    profile_counter = 0
+    # Only profile every N steps to reduce overhead (e.g. every 5 steps)
+    profile_frequency = args.profile_frequency if hasattr(args, 'profile_frequency') else 5
+    
+    # Only log the first profiling result in detail, subsequent ones will be summarized
+    first_profile = True
+    
+    # Training loop
+    for batch in train_dataloader:
+        if steps >= total_steps:
+            break
         
-        for batch_idx, batch in enumerate(dataloader):
-            if global_step >= args.max_steps:
-                break
-            
-            # 将数据移到设备上
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            labels = batch["labels"].to(device)
-            
-            # 前向传播
-            start_time = time.time()
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
-            end_time = time.time()
-            
-            loss = outputs.loss
-            total_loss += loss.item()
-            
-            # 计算并记录性能指标
-            if monitor:
-                # 计算延迟（毫秒）
-                latency = (end_time - start_time) * 1000
-                monitor.add_model_metric("latency", latency)
+        # Move data to device
+        batch = {k: v.to(device) for k, v in batch.items() if k != "labels" or v is not None}
+        
+        # Start profiling if enabled and it's time to profile
+        should_profile = do_profile and (profile_counter % profile_frequency == 0)
+        
+        if should_profile:
+            logger.info(f"步骤 {steps}: 开始FLOPs分析")
+            # Use print_results=first_profile to log detailed info only for the first time
+            flops_profiler.start_profiling(model)
+        
+        # Forward pass
+        outputs = model(**batch)
+        loss = outputs.loss
+        
+        # Stop profiling and collect results if enabled
+        if should_profile:
+            try:
+                profile_results = flops_profiler.stop_profiling(print_results=first_profile)
+                if profile_results and monitor:
+                    # Add metrics to monitor
+                    monitor.add_model_metric("dynamic_flops", profile_results['numeric']['flops'])
+                    monitor.add_model_metric("dynamic_macs", profile_results['numeric']['macs'])
+                    monitor.add_model_metric("dynamic_params", profile_results['numeric']['params'])
+                    monitor.add_model_metric("forward_elapsed_time", profile_results['numeric']['forward_elapsed_time'])
+                    monitor.add_model_metric("flops_per_second", profile_results['numeric']['flops_per_second'])
+                    
+                    # Output basic summary if not first time
+                    if not first_profile:
+                        logger.info(f"步骤 {steps} - FLOPs: {profile_results['readable']['flops']}, "
+                                    f"前向传播时间: {profile_results['readable']['forward_elapsed_time']}")
                 
-                # 计算困惑度
-                perplexity = torch.exp(loss).item()
-                monitor.add_model_metric("perplexity", perplexity)
+                # After first profiling, switch to summary mode
+                first_profile = False
                 
-                # 估算生成速度（tokens/s）- 使用batch中的token数估算
-                batch_tokens = input_ids.numel()
-                tokens_per_second = batch_tokens / (end_time - start_time)
-                monitor.add_model_metric("tokens_per_second", tokens_per_second)
-            
-            # 反向传播
-            loss.backward()
-            
-            # 梯度裁剪
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            
-            # 优化器步进
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-            
-            # 更新进度条
-            global_step += 1
-            progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss.item()})
-            
-            # 每隔一定步数记录日志
-            if global_step % 5 == 0:
-                avg_loss = total_loss / 5
-                logger.info(f"步骤 {global_step}/{args.max_steps}, 损失: {avg_loss:.4f}")
-                total_loss = 0
-            
-            # 每隔一定步数保存检查点
-            if args.output_dir and global_step % 20 == 0:
-                checkpoint_dir = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                os.makedirs(checkpoint_dir, exist_ok=True)
-                
-                logger.info(f"保存检查点到 {checkpoint_dir}")
-                model.save_pretrained(checkpoint_dir)
-                tokenizer.save_pretrained(checkpoint_dir)
+            except Exception as e:
+                logger.warning(f"步骤 {steps} FLOPs分析出错: {str(e)}")
+        
+        # Update profile counter
+        profile_counter += 1
+        
+        # Backward pass
+        loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
+        # Optimizer and scheduler steps
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+        
+        # Update progress
+        total_loss += loss.item()
+        steps += 1
+        progress_bar.update(1)
+        progress_bar.set_postfix({"loss": total_loss / steps})
+        
+        # Add metrics to monitor
+        if monitor:
+            monitor.add_model_metric("train_loss", loss.item())
+        
+        # If we've reached max steps, break out of the loop
+        if steps >= total_steps:
+            break
     
+    # Close progress bar
     progress_bar.close()
     
-    # 保存最终模型
-    if args.output_dir:
-        final_model_dir = os.path.join(args.output_dir, "final")
-        os.makedirs(final_model_dir, exist_ok=True)
-        
-        logger.info(f"保存最终模型到 {final_model_dir}")
-        model.save_pretrained(final_model_dir)
-        tokenizer.save_pretrained(final_model_dir)
+    # Calculate average loss
+    avg_loss = total_loss / steps
+    logger.info(f"Training completed, average loss: {avg_loss:.4f}")
     
-    logger.info("训练完成")
-    return model
+    # Save trained model
+    logger.info(f"Saving model to {args.output_dir}")
+    
+    # Save full model (excluding base model weights)
+    model.save_pretrained(args.output_dir)
+    
+    # Save tokenizer
+    tokenizer.save_pretrained(args.output_dir)
+    
+    # Save training parameters
+    with open(os.path.join(args.output_dir, "training_args.json"), "w", encoding="utf-8") as f:
+        json.dump({
+            "model_path": args.model_path,
+            "dataset_path": args.dataset_path,
+            "max_steps": args.max_steps,
+            "batch_size": args.batch_size,
+            "learning_rate": args.learning_rate,
+            "precision": args.precision,
+            "avg_loss": avg_loss
+        }, f, indent=2, ensure_ascii=False)
+    
+    return model, avg_loss
 
 def main():
-    """主函数"""
-    parser = argparse.ArgumentParser(description="微调Qwen2.5模型")
-    parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
-    parser.add_argument("--output_dir", type=str, default="models/finetuned", help="输出目录")
-    parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="训练精度")
-    parser.add_argument("--max_steps", type=int, default=50, help="最大训练步数")
-    parser.add_argument("--batch_size", type=int, default=4, help="批大小")
-    parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
-    parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
-    parser.add_argument("--dataset_size", type=int, default=100, help="生成的数据集大小")
-    parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
+    """Main function"""
+    parser = argparse.ArgumentParser(description="Fine-tune Qwen2.5 model")
+    parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="Model path")
+    parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="Dataset path")
+    parser.add_argument("--output_dir", type=str, default="models/finetuned", help="Output directory")
+    parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="Training precision")
+    parser.add_argument("--max_steps", type=int, default=50, help="Maximum training steps")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=2e-5, help="Learning rate")
+    parser.add_argument("--generate_dataset", action="store_true", help="Whether to generate example dataset")
+    parser.add_argument("--dataset_size", type=int, default=100, help="Size of generated dataset")
+    parser.add_argument("--monitor", action="store_true", help="Whether to monitor hardware usage")
+    parser.add_argument("--flops_profiler", action="store_true", help="Whether to use DeepSpeed's Flops Profiler for FLOPs analysis")
+    parser.add_argument("--profile_frequency", type=int, default=5, help="Frequency of FLOPs profiling (every N steps)")
     args = parser.parse_args()
     
-    # 设置随机种子
+    # Set random seed
     set_seed(42)
     
-    # 创建输出目录
+    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # 生成数据集（如果需要）
+    # Generate dataset (if needed)
     if args.generate_dataset or not os.path.exists(args.dataset_path):
-        logger.info(f"生成示例数据集，大小: {args.dataset_size}")
+        logger.info(f"Generating example dataset, size: {args.dataset_size}")
         args.dataset_path = generate_dataset(args.dataset_size, args.dataset_path)
     
-    # 启动资源监控（如果需要）
+    # Start resource monitoring (if needed)
     monitor = None
     if args.monitor:
         monitor_log_dir = os.path.join("logs/monitor", time.strftime("%Y%m%d-%H%M%S"))
         monitor = ResourceMonitor(interval=1.0, log_dir=monitor_log_dir)
         monitor.start()
     
+    # Initialize FLOPs profiler (if needed)
+    flops_profiler = None
+    if args.flops_profiler:
+        logger.info("Initializing FLOPs profiler")
+        flops_profiler = FlopsProfilerWrapper(hardware_monitor=monitor)
+    
     try:
-        # 加载模型和分词器
-        logger.info(f"加载模型: {args.model_path}")
+        # Load model and tokenizer
+        logger.info(f"Loading model: {args.model_path}")
         
-        # 根据精度设置torch_dtype
+        # Set torch_dtype based on precision
         if args.precision == "fp16":
             torch_dtype = torch.float16
         elif args.precision == "bf16":
@@ -592,8 +910,8 @@ def main():
         else:
             torch_dtype = torch.float32
         
-        # 使用普通LoRA进行训练
-        logger.info(f"使用 {args.precision} 精度加载模型")
+        # Use standard LoRA for training
+        logger.info(f"Using {args.precision} precision to load model")
         model = AutoModelForCausalLM.from_pretrained(
             args.model_path,
             torch_dtype=torch_dtype,
@@ -606,23 +924,23 @@ def main():
             trust_remote_code=True
         )
         
-        # 准备模型进行LoRA微调
-        logger.info("准备模型进行LoRA微调")
-        # 不使用prepare_model_for_kbit_training，这是QLoRA需要的
+        # Prepare model for LoRA fine-tuning
+        logger.info("Preparing model for LoRA fine-tuning")
+        # Don't use prepare_model_for_kbit_training, that's for QLoRA
         model = setup_lora_training(model, tokenizer, args)
         
-        # 创建数据集
-        logger.info("创建数据集")
+        # Create dataset
+        logger.info("Creating dataset")
         dataset = QwenFinetuneDataset(args.dataset_path, tokenizer)
         
-        # 开始训练
-        logger.info(f"开始微调训练，最大步数: {args.max_steps}")
-        train_custom(model, tokenizer, dataset, args, monitor)
+        # Start training
+        logger.info(f"Starting fine-tuning, max steps: {args.max_steps}")
+        train_custom(model, tokenizer, dataset, args, monitor, flops_profiler)
         
-        logger.info("微调完成")
+        logger.info("Fine-tuning completed")
         
     finally:
-        # 停止资源监控
+        # Stop resource monitoring
         if monitor:
             monitor.stop()
 

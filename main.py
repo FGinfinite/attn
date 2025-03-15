@@ -62,13 +62,14 @@ def parse_args():
     finetune_parser.add_argument("--dataset_path", type=str, default="data/finetune/dataset.json", help="数据集路径")
     finetune_parser.add_argument("--output_dir", type=str, default="models/finetuned", help="微调模型输出目录")
     finetune_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="训练精度")
-    finetune_parser.add_argument("--max_steps", type=int, default=5, help="最大训练步数")
+    finetune_parser.add_argument("--max_steps", type=int, default=50, help="最大训练步数")
     finetune_parser.add_argument("--batch_size", type=int, default=1, help="训练批次大小")
     finetune_parser.add_argument("--learning_rate", type=float, default=2e-5, help="学习率")
     finetune_parser.add_argument("--generate_dataset", action="store_true", help="是否生成示例数据集")
     finetune_parser.add_argument("--dataset_size", type=int, default=100, help="生成的数据集大小")
     finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     finetune_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
+    finetune_parser.add_argument("--profile_frequency", type=int, default=5, help="FLOPs分析频率（每N步分析一次）")
     
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
@@ -217,6 +218,8 @@ def main():
             sys.argv.append("--monitor")
         if args.flops_profiler:
             sys.argv.append("--flops_profiler")
+        if hasattr(args, "profile_frequency"):
+            sys.argv.extend(["--profile_frequency", str(args.profile_frequency)])
         finetune_main()
     
     elif args.command == "benchmark":
