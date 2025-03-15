@@ -27,18 +27,21 @@ def get_linear_attention_config(kernel_function="elu"):
         "kernel_function": kernel_function
     }
 
-def replace_with_linear_attention(model, kernel_function="elu"):
+def replace_with_linear_attention(model, kernel_function="elu", last_layer_only=False):
     """
     将模型的注意力机制替换为线性注意力机制
     
     Args:
         model: 原始模型
         kernel_function: 核函数，可选值为"elu", "relu", "softmax"
+        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
         model: 替换后的模型
     """
     logger.info(f"使用线性注意力机制，核函数: {kernel_function}")
+    if last_layer_only:
+        logger.info(f"注意：只替换最后一层注意力机制")
     
     # 定义核函数
     def apply_kernel(x, kernel_type):
@@ -51,55 +54,96 @@ def replace_with_linear_attention(model, kernel_function="elu"):
         else:
             raise ValueError(f"不支持的核函数: {kernel_type}")
     
-    # 遍历模型的所有层
+    # 收集所有注意力模块
+    attention_modules = []
     for name, module in model.named_modules():
         # 查找注意力模块
-        if "self_attn" in name and hasattr(module, "compute_attention"):
-            # 保存原始的计算注意力函数
-            original_compute_attention = module.compute_attention
+        if any(attn_name in name.lower() for attn_name in ["self_attn", "sdpaattention", "attention"]) and hasattr(module, "compute_attention"):
+            attention_modules.append((name, module))
+            logger.debug(f"发现注意力模块: {name}")
             
-            # 定义新的计算注意力函数
-            def linear_compute_attention(
-                self,
-                query_states,
-                key_states,
-                value_states,
-                attention_mask,
-                output_attentions=False,
-            ):
-                # 应用核函数
-                query_prime = apply_kernel(query_states, kernel_function)
-                key_prime = apply_kernel(key_states, kernel_function)
-                
-                # 计算KV矩阵
-                kv = torch.matmul(key_prime.transpose(2, 3), value_states)
-                
-                # 计算分母
-                z = torch.matmul(query_prime, torch.sum(key_prime, dim=2).unsqueeze(-1))
-                
-                # 计算线性注意力输出
-                attn_output = torch.matmul(query_prime, kv) / (z + 1e-6)
-                
-                # 如果需要输出注意力权重，计算标准注意力权重
-                if output_attentions:
-                    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(
-                        query_states.size(-1)
-                    )
-                    
-                    if attention_mask is not None:
-                        attn_weights = attn_weights + attention_mask
-                    
-                    attn_weights = F.softmax(attn_weights, dim=-1)
-                else:
-                    attn_weights = None
-                
-                outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
-                return outputs
+    if not attention_modules:
+        logger.warning("未找到任何符合条件的注意力模块!")
+        return model
+    
+    # 确定要替换的模块
+    if last_layer_only and attention_modules:
+        # 只处理最后一个注意力模块
+        modules_to_replace = [attention_modules[-1]]
+        name, _ = modules_to_replace[0]
+        logger.info(f"将替换最后一层注意力模块: {name}")
+    else:
+        # 处理所有注意力模块
+        modules_to_replace = attention_modules
+        logger.info(f"将替换所有 {len(modules_to_replace)} 个注意力模块")
+    
+    # 替换选定的模块
+    replaced_count = 0
+    for name, module in modules_to_replace:
+        # 保存原始的计算注意力函数
+        original_compute_attention = module.compute_attention
+        
+        # 定义新的计算注意力函数
+        def linear_compute_attention(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            output_attentions=False,
+        ):
+            # 添加注意力类型标记
+            self._attn_type = "linear"
+            self._kernel_function = kernel_function
             
-            # 替换计算注意力函数
+            # 应用核函数
+            query_prime = apply_kernel(query_states, kernel_function)
+            key_prime = apply_kernel(key_states, kernel_function)
+            
+            # 计算KV矩阵
+            kv = torch.matmul(key_prime.transpose(2, 3), value_states)
+            
+            # 计算分母
+            z = torch.matmul(query_prime, torch.sum(key_prime, dim=2).unsqueeze(-1))
+            
+            # 计算线性注意力输出
+            attn_output = torch.matmul(query_prime, kv) / (z + 1e-6)
+            
+            # 如果需要输出注意力权重，计算标准注意力权重
+            if output_attentions:
+                attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(
+                    query_states.size(-1)
+                )
+                
+                if attention_mask is not None:
+                    attn_weights = attn_weights + attention_mask
+                
+                attn_weights = F.softmax(attn_weights, dim=-1)
+            else:
+                attn_weights = None
+            
+            outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
+            return outputs
+        
+        # 添加标记属性
+        module._attn_type = "linear"
+        module._kernel_function = kernel_function
+        
+        # 替换计算注意力函数
+        try:
             module.compute_attention = linear_compute_attention.__get__(module, type(module))
-            
+            replaced_count += 1
             logger.info(f"已替换模块 {name} 的注意力计算函数")
+        except Exception as e:
+            logger.warning(f"替换模块 {name} 失败: {str(e)}")
+    
+    if replaced_count > 0:
+        if last_layer_only:
+            logger.info(f"已成功替换最后一层注意力模块")
+        else:
+            logger.info(f"已成功替换 {replaced_count} 个注意力模块")
+    else:
+        logger.warning("未能替换任何注意力模块!")
     
     return model
 

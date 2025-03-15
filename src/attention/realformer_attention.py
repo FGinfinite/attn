@@ -123,15 +123,16 @@ class RealformerAttention(nn.Module):
         
         return outputs
 
-def replace_with_realformer_attention(model):
+def replace_with_realformer_attention(model, last_layer_only=False):
     """
-    使用Realformer注意力机制替换模型中的标准自注意力
+    将模型的注意力机制替换为Realformer注意力机制
     
     Args:
-        model: 需要修改的模型
+        model: 原始模型
+        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
-        model: 修改后的模型
+        model: 替换后的模型
     """
     logger.info(f"替换为Realformer注意力机制")
     

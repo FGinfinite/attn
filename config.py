@@ -33,6 +33,10 @@ GPTQ_CONFIG = CONFIG["quantization"]["gptq"]
 SUPPORTED_ATTENTION_TYPES = CONFIG["attention"]["supported_types"]
 SPARSE_ATTENTION_CONFIG = CONFIG["attention"]["sparse"]
 LINEAR_ATTENTION_CONFIG = CONFIG["attention"]["linear"]
+REFORMER_ATTENTION_CONFIG = CONFIG["attention"]["reformer"]
+LINFORMER_ATTENTION_CONFIG = CONFIG["attention"]["linformer"]
+LONGFORMER_ATTENTION_CONFIG = CONFIG["attention"]["longformer"]
+MLA_ATTENTION_CONFIG = CONFIG["attention"]["mla"]
 
 # 基准测试配置
 DEFAULT_BATCH_SIZE = CONFIG["benchmark"]["default_batch_size"]

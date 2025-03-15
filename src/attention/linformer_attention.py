@@ -145,17 +145,18 @@ class LinformerAttention(nn.Module):
         
         return outputs
 
-def replace_with_linformer_attention(model, k_ratio=0.25, max_seq_length=512):
+def replace_with_linformer_attention(model, k_ratio=0.25, max_seq_length=512, last_layer_only=False):
     """
-    使用Linformer注意力机制替换模型中的标准自注意力
+    将模型的注意力机制替换为Linformer注意力机制
     
     Args:
-        model: 需要修改的模型
-        k_ratio: 投影维度与序列长度的比例
+        model: 原始模型
+        k_ratio: k的比例，用于确定投影维度
         max_seq_length: 最大序列长度
+        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
-        model: 修改后的模型
+        model: 替换后的模型
     """
     logger.info(f"替换为Linformer注意力机制: k_ratio={k_ratio}, max_seq_length={max_seq_length}")
     

@@ -46,6 +46,7 @@ def parse_args():
     attn_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
     attn_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     attn_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
+    attn_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     attn_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
@@ -70,6 +71,14 @@ def parse_args():
     finetune_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     finetune_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     finetune_parser.add_argument("--profile_frequency", type=int, default=5, help="FLOPs分析频率（每N步分析一次）")
+    finetune_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"], default="standard", help="注意力机制类型")
+    finetune_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
+    finetune_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
+    finetune_parser.add_argument("--num_hashes", type=int, default=4, help="Reformer注意力的哈希数")
+    finetune_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
+    finetune_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
+    finetune_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
+    finetune_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
@@ -85,6 +94,7 @@ def parse_args():
     bench_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
     bench_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
+    bench_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     bench_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
@@ -143,13 +153,30 @@ def main():
     # 加载配置
     config = load_config()
     
+    # 为日志文件名添加命令名和注意力类型（如果适用）
+    log_suffix = f"_{args.command}"
+    if args.command in ["finetune", "test_attention", "benchmark"] and hasattr(args, "attention"):
+        log_suffix += f"_{args.attention}"
+        # 为特定注意力机制添加更详细的参数
+        if args.attention == "sparse":
+            log_suffix += f"_sp{args.sparsity}"
+        elif args.attention == "linear":
+            log_suffix += f"_{args.kernel_function}"
+        elif args.attention == "reformer":
+            log_suffix += f"_hash{args.num_hashes}" 
+        elif args.attention == "linformer":
+            log_suffix += f"_k{args.k_ratio}"
+        elif args.attention == "longformer":
+            log_suffix += f"_w{args.window_size}_g{args.global_tokens_ratio}"
+    
     # 设置日志
     logger = setup_logger(
         name="attn_experiment",
         log_dir=config["logging"]["log_dir"],
         log_level="INFO",
         log_to_file=True,
-        log_to_console=True
+        log_to_console=True,
+        log_file_suffix=log_suffix
     )
     
     logger.info(f"运行命令: {args.command}")
@@ -185,6 +212,8 @@ def main():
             "--window_size", str(args.window_size),
             "--global_tokens_ratio", str(args.global_tokens_ratio)
         ]
+        if args.last_layer_only:
+            sys.argv.append("--last_layer_only")
         if args.monitor:
             sys.argv.append("--monitor")
         if args.flops_profiler:
@@ -202,15 +231,76 @@ def main():
     
     elif args.command == "finetune":
         from scripts.model.finetune_model import main as finetune_main
-        sys.argv = [sys.argv[0]] + [
-            "--model_path", args.model_path,
-            "--dataset_path", args.dataset_path,
-            "--output_dir", args.output_dir,
-            "--precision", args.precision,
-            "--max_steps", str(args.max_steps),
-            "--batch_size", str(args.batch_size),
-            "--learning_rate", str(args.learning_rate)
-        ]
+        
+        # 设置日志文件名前缀，添加注意力类型
+        log_prefix = f"finetune_{args.attention}"
+        if args.attention == "sparse":
+            log_prefix += f"_sp{args.sparsity}"
+        elif args.attention == "linear":
+            log_prefix += f"_{args.kernel_function}"
+        elif args.attention == "reformer":
+            log_prefix += f"_hash{args.num_hashes}"
+        elif args.attention == "linformer":
+            log_prefix += f"_k{args.k_ratio}"
+        elif args.attention == "longformer":
+            log_prefix += f"_w{args.window_size}_g{args.global_tokens_ratio}"
+        
+        # 如果只替换最后一层，在日志前缀中添加标记
+        if args.last_layer_only:
+            log_prefix += "_lastlayer"
+        
+        # 设置输出目录，添加注意力类型
+        output_dir = f"{args.output_dir}_{args.attention}"
+        if args.attention != "standard":
+            # 添加注意力类型特定的参数
+            output_dir_suffix = ""
+            if args.attention == "sparse":
+                output_dir_suffix = f"_sp{args.sparsity}"
+            elif args.attention == "linear":
+                output_dir_suffix = f"_{args.kernel_function}"
+            elif args.attention == "reformer":
+                output_dir_suffix = f"_hash{args.num_hashes}"
+            elif args.attention == "linformer":
+                output_dir_suffix = f"_k{args.k_ratio}"
+            elif args.attention == "longformer":
+                output_dir_suffix = f"_w{args.window_size}_g{args.global_tokens_ratio}"
+            
+            # 如果只替换最后一层，在输出目录中添加标记
+            if args.last_layer_only:
+                output_dir_suffix += "_lastlayer"
+            
+            output_dir += output_dir_suffix
+            
+            sys.argv = [sys.argv[0]] + [
+                "--model_path", args.model_path,
+                "--dataset_path", args.dataset_path,
+                "--output_dir", output_dir,
+                "--precision", args.precision,
+                "--max_steps", str(args.max_steps),
+                "--batch_size", str(args.batch_size),
+                "--learning_rate", str(args.learning_rate),
+                "--attention", args.attention,
+                "--sparsity", str(args.sparsity),
+                "--kernel_function", args.kernel_function,
+                "--num_hashes", str(args.num_hashes),
+                "--k_ratio", str(args.k_ratio),
+                "--window_size", str(args.window_size),
+                "--global_tokens_ratio", str(args.global_tokens_ratio)
+            ]
+            
+            if args.last_layer_only:
+                sys.argv.append("--last_layer_only")
+        else:
+            sys.argv = [sys.argv[0]] + [
+                "--model_path", args.model_path,
+                "--dataset_path", args.dataset_path,
+                "--output_dir", args.output_dir,
+                "--precision", args.precision,
+                "--max_steps", str(args.max_steps),
+                "--batch_size", str(args.batch_size),
+                "--learning_rate", str(args.learning_rate)
+            ]
+            
         if args.generate_dataset:
             sys.argv.append("--generate_dataset")
             sys.argv.extend(["--dataset_size", str(args.dataset_size)])
@@ -220,10 +310,23 @@ def main():
             sys.argv.append("--flops_profiler")
         if hasattr(args, "profile_frequency"):
             sys.argv.extend(["--profile_frequency", str(args.profile_frequency)])
+        if hasattr(args, "attention"):
+            sys.argv.extend(["--attention", args.attention])
+            if args.attention == "sparse" and hasattr(args, "sparsity"):
+                sys.argv.extend(["--sparsity", str(args.sparsity)])
+            elif args.attention == "linear" and hasattr(args, "kernel_function"):
+                sys.argv.extend(["--kernel_function", args.kernel_function])
+            elif args.attention == "reformer" and hasattr(args, "num_hashes"):
+                sys.argv.extend(["--num_hashes", str(args.num_hashes)])
+            elif args.attention == "linformer" and hasattr(args, "k_ratio"):
+                sys.argv.extend(["--k_ratio", str(args.k_ratio)])
+            elif args.attention == "longformer" and hasattr(args, "window_size") and hasattr(args, "global_tokens_ratio"):
+                sys.argv.extend(["--window_size", str(args.window_size)])
+                sys.argv.extend(["--global_tokens_ratio", str(args.global_tokens_ratio)])
         finetune_main()
     
     elif args.command == "benchmark":
-        from scripts.benchmark.run_benchmark import main as benchmark_main
+        from scripts.benchmark.benchmark import main as benchmark_main
         sys.argv = [sys.argv[0]] + [
             "--model_path", args.model_path,
             "--quant", args.quant,
@@ -231,28 +334,25 @@ def main():
             "--batch_size", str(args.batch_size),
             "--input_length", str(args.input_length),
             "--output_length", str(args.output_length),
-            "--max_test_cases", str(args.max_test_cases)
+            "--sparsity", str(args.sparsity),
+            "--kernel_function", args.kernel_function,
+            "--num_hashes", str(args.num_hashes),
+            "--k_ratio", str(args.k_ratio),
+            "--window_size", str(args.window_size),
+            "--global_tokens_ratio", str(args.global_tokens_ratio)
         ]
         
-        # 根据注意力机制类型添加特定参数
-        if args.attention == "sparse":
-            sys.argv.extend(["--sparsity", str(args.sparsity)])
-        elif args.attention == "linear":
-            sys.argv.extend(["--kernel_function", args.kernel_function])
-        elif args.attention == "reformer":
-            sys.argv.extend(["--num_hashes", str(args.num_hashes)])
-        elif args.attention == "linformer":
-            sys.argv.extend(["--k_ratio", str(args.k_ratio)])
-        elif args.attention == "longformer":
-            sys.argv.extend(["--window_size", str(args.window_size), 
-                            "--global_tokens_ratio", str(args.global_tokens_ratio)])
-        
+        if args.last_layer_only:
+            sys.argv.append("--last_layer_only")
         if args.monitor:
             sys.argv.append("--monitor")
         if args.flops_profiler:
             sys.argv.append("--flops_profiler")
         if args.save_results:
             sys.argv.append("--save_results")
+        if args.max_test_cases > 0:
+            sys.argv.extend(["--max_test_cases", str(args.max_test_cases)])
+        
         benchmark_main()
     
     elif args.command == "auto_test":

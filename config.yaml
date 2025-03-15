@@ -39,6 +39,7 @@ attention:
     - "linformer"
     - "longformer"
     - "realformer"
+    - "mla"
   sparse:
     default_sparsity: 0.8
     sparsity_range:
@@ -67,6 +68,11 @@ attention:
       - 64
       - 256
     default_global_tokens_ratio: 0.1
+  mla:
+    default_rank_ratio: 0.25
+    rank_ratio_range:
+      - 0.1
+      - 0.5
 
 # 基准测试配置
 benchmark:

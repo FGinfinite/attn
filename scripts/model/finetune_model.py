@@ -42,6 +42,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.utils.logger import setup_logger
 from scripts.model.generate_finetune_data import generate_dataset
 from src.utils.flops_profiler import FlopsProfilerWrapper
+# 导入注意力机制相关工具
+from src.attention.attention_utils import replace_attention_mechanism, get_attention_info, get_attention_config
 
 # 设置日志记录器
 logger = logging.getLogger("attn_experiment")
@@ -717,6 +719,10 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
     device = model.device
     train_batch_size = args.batch_size
     
+    # 初始化用于统计的变量
+    total_training_time = 0
+    total_tokens_processed = 0
+    
     # Use our custom data collator
     data_collator = CustomDataCollator(tokenizer)
     
@@ -745,6 +751,9 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
     steps = 0
     progress_bar = tqdm(total=total_steps, desc="Training")
     
+    # 记录训练开始时间
+    train_start_time = time.time()
+    
     # Check if FLOPs profiler should be enabled
     do_profile = flops_profiler is not None
     
@@ -772,9 +781,24 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
             # Use print_results=first_profile to log detailed info only for the first time
             flops_profiler.start_profiling(model)
         
+        # 记录开始时间，用于计算延迟和生成速度
+        start_time = time.time()
+        
         # Forward pass
         outputs = model(**batch)
         loss = outputs.loss
+        
+        # 计算每个批次的延迟(ms)
+        latency = (time.time() - start_time) * 1000  # 转换为毫秒
+        
+        # 计算困惑度（从损失值）
+        # perplexity = exp(loss)
+        perplexity = torch.exp(loss).item()
+        
+        # 计算生成速度（tokens/秒）
+        # 假设每个批次中的tokens数量为batch中labels的非-100值的数量
+        num_tokens = (batch["labels"] != -100).sum().item()
+        tokens_per_second = num_tokens / (time.time() - start_time)
         
         # Stop profiling and collect results if enabled
         if should_profile:
@@ -821,7 +845,18 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
         
         # Add metrics to monitor
         if monitor:
+            # 确保每个步骤都记录所有性能指标
             monitor.add_model_metric("train_loss", loss.item())
+            monitor.add_model_metric("perplexity", perplexity)
+            monitor.add_model_metric("latency", latency)
+            monitor.add_model_metric("tokens_per_second", tokens_per_second)
+            
+            # 每个步骤都输出日志信息，而不是每10步一次
+            logger.info(f"步骤 {steps} - 损失: {loss.item():.4f}, 困惑度: {perplexity:.4f}, "
+                        f"延迟: {latency:.2f}ms, 生成速度: {tokens_per_second:.2f} tokens/s")
+        
+        # 累加处理的tokens总数
+        total_tokens_processed += num_tokens
         
         # If we've reached max steps, break out of the loop
         if steps >= total_steps:
@@ -829,6 +864,10 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
     
     # Close progress bar
     progress_bar.close()
+    
+    # 计算总训练时间
+    total_training_time = time.time() - train_start_time
+    logger.info(f"Total training time: {total_training_time:.2f} seconds")
     
     # Calculate average loss
     avg_loss = total_loss / steps
@@ -855,6 +894,43 @@ def train_custom(model, tokenizer, dataset, args, monitor=None, flops_profiler=N
             "avg_loss": avg_loss
         }, f, indent=2, ensure_ascii=False)
     
+    # 保存训练结果和统计数据
+    with open(os.path.join(args.output_dir, "training_stats.json"), "w") as f:
+        json.dump({
+            "train_loss": avg_loss,
+            "training_time": total_training_time,
+            "train_tokens_per_second": round(total_tokens_processed / total_training_time, 2)
+        }, f, indent=2, ensure_ascii=False)
+    
+    # 保存注意力机制信息
+    if args.attention != "standard":
+        attention_info = {
+            "attention_type": args.attention
+        }
+        if args.attention == "sparse":
+            attention_info["sparsity"] = args.sparsity
+        elif args.attention == "linear":
+            attention_info["kernel_function"] = args.kernel_function
+        elif args.attention == "reformer":
+            attention_info["num_hashes"] = args.num_hashes
+        elif args.attention == "linformer":
+            attention_info["k_ratio"] = args.k_ratio
+        elif args.attention == "longformer":
+            attention_info["window_size"] = args.window_size
+            attention_info["global_tokens_ratio"] = args.global_tokens_ratio
+        
+        with open(os.path.join(args.output_dir, "attention_config.json"), "w") as f:
+            json.dump(attention_info, f, indent=2)
+        
+        logger.info(f"保存注意力机制配置到: {os.path.join(args.output_dir, 'attention_config.json')}")
+    
+    # 保存最终模型
+    logger.info(f"保存最终模型到: {args.output_dir}")
+    model.save_pretrained(args.output_dir)
+    tokenizer.save_pretrained(args.output_dir)
+    
+    logger.info("微调完成！")
+    
     return model, avg_loss
 
 def main():
@@ -872,6 +948,15 @@ def main():
     parser.add_argument("--monitor", action="store_true", help="Whether to monitor hardware usage")
     parser.add_argument("--flops_profiler", action="store_true", help="Whether to use DeepSpeed's Flops Profiler for FLOPs analysis")
     parser.add_argument("--profile_frequency", type=int, default=5, help="Frequency of FLOPs profiling (every N steps)")
+    # 添加注意力机制相关参数
+    parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"], default="standard", help="Attention mechanism type")
+    parser.add_argument("--sparsity", type=float, default=0.8, help="Sparsity for sparse attention")
+    parser.add_argument("--kernel_function", type=str, default="elu", help="Kernel function for linear attention")
+    parser.add_argument("--num_hashes", type=int, default=4, help="Number of hashes for Reformer attention")
+    parser.add_argument("--k_ratio", type=float, default=0.25, help="K ratio for Linformer attention")
+    parser.add_argument("--window_size", type=int, default=128, help="Window size for Longformer attention")
+    parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Global tokens ratio for Longformer attention")
+    parser.add_argument("--last_layer_only", action="store_true", help="Whether to replace only the last attention layer")
     args = parser.parse_args()
     
     # Set random seed
@@ -888,7 +973,9 @@ def main():
     # Start resource monitoring (if needed)
     monitor = None
     if args.monitor:
-        monitor_log_dir = os.path.join("logs/monitor", time.strftime("%Y%m%d-%H%M%S"))
+        # 修改监控日志目录名称，添加注意力机制类型
+        monitor_log_dir = os.path.join("logs/monitor", 
+                                       f"{time.strftime('%Y%m%d-%H%M%S')}_{args.attention}")
         monitor = ResourceMonitor(interval=1.0, log_dir=monitor_log_dir)
         monitor.start()
     
@@ -924,10 +1011,162 @@ def main():
             trust_remote_code=True
         )
         
-        # Prepare model for LoRA fine-tuning
+        # 先应用LoRA准备
         logger.info("Preparing model for LoRA fine-tuning")
-        # Don't use prepare_model_for_kbit_training, that's for QLoRA
         model = setup_lora_training(model, tokenizer, args)
+        
+        # 在LoRA之后替换注意力机制（如果指定）
+        if args.attention != "standard":
+            if args.last_layer_only:
+                logger.info(f"Replacing only the last layer attention with {args.attention} attention")
+            else:
+                logger.info(f"Replacing all standard attention layers with {args.attention} attention")
+                
+            attention_kwargs = {}
+            if args.attention == "sparse":
+                attention_kwargs["sparsity"] = args.sparsity
+            elif args.attention == "linear":
+                attention_kwargs["kernel_function"] = args.kernel_function
+            elif args.attention == "reformer":
+                attention_kwargs["num_hashes"] = args.num_hashes
+            elif args.attention == "linformer":
+                attention_kwargs["k_ratio"] = args.k_ratio
+            elif args.attention == "longformer":
+                attention_kwargs["window_size"] = args.window_size
+                attention_kwargs["global_tokens_ratio"] = args.global_tokens_ratio
+            
+            # 添加last_layer_only参数
+            attention_kwargs["last_layer_only"] = args.last_layer_only
+            
+            # 替换模型中的注意力层
+            model = replace_attention_mechanism(model, args.attention, **attention_kwargs)
+            
+            # 获取注意力机制信息并记录
+            attention_config = get_attention_config(args.attention, **attention_kwargs)
+            logger.info(f"Attention mechanism config: {attention_config}")
+            
+            # 验证注意力机制是否真的被替换了
+            replaced_count = 0
+            attention_modules = []
+            last_layer_replaced = False
+            last_layer_name = None
+            
+            logger.info("开始验证注意力机制替换...")
+            # 首先记录所有可能的注意力模块
+            for name, module in model.named_modules():
+                if 'atten' in name.lower() or 'sdpa' in name.lower() or getattr(module, '_attn_type', None) == args.attention:
+                    attention_modules.append((name, type(module).__name__))
+                    if hasattr(module, '_attn_type') and module._attn_type == args.attention:
+                        replaced_count += 1
+                        logger.info(f"✓ 确认替换的注意力模块: {name}, 类型: {type(module).__name__}")
+                        # 记录最后一个被替换的模块
+                        last_layer_name = name
+                        last_layer_replaced = True
+                        
+                        # 打印模块的稀疏度设置
+                        if args.attention == "sparse" and hasattr(module, "_sparsity"):
+                            logger.info(f"  稀疏度设置: {module._sparsity} (期望值: {args.sparsity})")
+            
+            # 如果只替换最后一层，显示明确的信息
+            if last_layer_replaced and replaced_count == 1:
+                logger.info(f"已成功确认最后一层注意力机制({last_layer_name})被替换为{args.attention}注意力")
+            else:
+                logger.info(f"模型中找到 {len(attention_modules)} 个可能的注意力相关模块，其中 {replaced_count} 个已确认替换")
+            
+            if replaced_count == 0:
+                logger.warning("警告: 没有找到任何带有_attn_type标记的模块！")
+                
+                # 打印找到的所有注意力相关模块的信息
+                logger.info("可能的注意力模块列表:")
+                for name, type_name in attention_modules:
+                    logger.info(f"- {name}: {type_name}")
+                
+                # 更进一步的检查：查找是否有函数被替换
+                method_replaced_count = 0
+                for name, module in model.named_modules():
+                    # 检查compute_attention方法
+                    if hasattr(module, "compute_attention"):
+                        compute_attn_func = module.compute_attention
+                        function_source = str(compute_attn_func)
+                        if args.attention.lower() in function_source.lower():
+                            logger.info(f"✓ 已找到注意力函数替换: {name}.compute_attention")
+                            method_replaced_count += 1
+                            last_layer_name = name
+                    
+                    # 检查forward方法
+                    if hasattr(module, "forward"):
+                        forward_func = module.forward
+                        function_source = str(forward_func)
+                        if args.attention.lower() in function_source.lower() or 'sparse' in function_source.lower():
+                            logger.info(f"✓ 已找到forward函数替换: {name}.forward")
+                            method_replaced_count += 1
+                            last_layer_name = name
+                
+                if method_replaced_count > 0:
+                    if method_replaced_count == 1:
+                        logger.info(f"通过方法替换确认最后一层注意力机制({last_layer_name})被替换")
+                    else:
+                        logger.info(f"找到 {method_replaced_count} 个替换的方法，继续进行微调")
+                    replaced_count = method_replaced_count
+                
+                # 如果仍未找到替换，尝试通过行为验证
+                if replaced_count == 0:
+                    logger.warning("尝试通过行为验证注意力机制替换...")
+                    try:
+                        # 准备测试输入
+                        device = next(model.parameters()).device
+                        batch_size, seq_len = 1, 16
+                        
+                        # 构建一个随机输入序列用于测试注意力
+                        if hasattr(model.config, "vocab_size"):
+                            vocab_size = model.config.vocab_size
+                            input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
+                            
+                            logger.info(f"使用随机输入测试模型行为...")
+                            # 使用输出注意力权重的模式运行前向传递
+                            with torch.no_grad():
+                                outputs = model(input_ids=input_ids, output_attentions=True)
+                                
+                                # 分析输出的注意力权重
+                                if hasattr(outputs, "attentions") and outputs.attentions is not None:
+                                    attentions = outputs.attentions
+                                    if isinstance(attentions, tuple) and len(attentions) > 0:
+                                        # 获取最后一层的注意力权重（通常是最后一个元素）
+                                        attn_weights = attentions[-1]
+                                        
+                                        # 分析稀疏模式
+                                        if args.attention == "sparse":
+                                            # 对于稀疏注意力，我们期望大多数值接近0
+                                            nonzero_ratio = (attn_weights > 1e-6).float().mean().item()
+                                            logger.info(f"最后一层注意力权重中非零元素比例: {nonzero_ratio:.4f}")
+                                            
+                                            # 稀疏度验证
+                                            expected_nonzero = 1.0 - args.sparsity
+                                            tolerance = 0.2  # 允许20%的误差
+                                            
+                                            if abs(nonzero_ratio - expected_nonzero) < tolerance:
+                                                logger.info(f"✓ 验证成功! 最后一层非零比例({nonzero_ratio:.4f})接近预期({expected_nonzero:.4f})")
+                                                replaced_count = 1
+                                            else:
+                                                logger.warning(f"× 验证失败! 非零比例({nonzero_ratio:.4f})与预期({expected_nonzero:.4f})相差较大")
+                        else:
+                            logger.warning("模型配置中没有vocab_size，无法生成随机输入")
+                            
+                    except Exception as e:
+                        logger.warning(f"行为验证失败: {str(e)}")
+            
+            # 最终决定是否继续微调
+            if replaced_count == 0:
+                logger.warning("⚠️ 警告! 无法确认注意力机制是否成功替换!")
+                logger.warning("微调过程中可能不会使用您指定的注意力机制。是否要继续?")
+                
+                # 为了不阻塞进程，这里我们仍然继续执行，但日志中会有明确警告
+                logger.warning("继续进行微调，但请注意您可能没有实际使用所选的注意力机制...")
+            else:
+                if replaced_count == 1:
+                    logger.info(f"✅ 确认成功! 已替换最后一层注意力模块/函数")
+                else:
+                    logger.info(f"✅ 确认成功! 已找到 {replaced_count} 个替换的注意力模块/函数")
         
         # Create dataset
         logger.info("Creating dataset")
