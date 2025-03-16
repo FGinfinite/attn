@@ -189,16 +189,17 @@ class ReformerAttention(nn.Module):
     def forward(self, *args, **kwargs):
         return self.lsh_attention(*args, **kwargs)
 
-def replace_with_reformer_attention(model, num_hashes=4):
+def replace_with_reformer_attention(model, num_hashes=4, last_layer_only=False):
     """
-    使用Reformer注意力机制替换模型中的标准自注意力
+    将模型的注意力机制替换为Reformer注意力机制
     
     Args:
-        model: 需要修改的模型
-        num_hashes: LSH哈希函数数量
+        model: 原始模型
+        num_hashes: LSH哈希数量
+        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
-        model: 修改后的模型
+        model: 替换后的模型
     """
     logger.info(f"替换为Reformer注意力机制: num_hashes={num_hashes}")
     

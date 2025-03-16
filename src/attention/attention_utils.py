@@ -31,9 +31,9 @@ from src.attention.longformer_attention import (
 from src.attention.realformer_attention import (
     get_realformer_attention_config, replace_with_realformer_attention
 )
-# 导入低秩分解注意力机制
-from src.attention.low_rank_attention import (
-    get_low_rank_attention_config, replace_with_low_rank_attention
+# 导入MLA注意力机制
+from src.attention.mla_attention import (
+    get_mla_attention_config, replace_with_mla_attention
 )
 
 def get_attention_config(attn_type, **kwargs):
@@ -41,41 +41,64 @@ def get_attention_config(attn_type, **kwargs):
     获取注意力机制配置
     
     Args:
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"
         **kwargs: 其他参数
     
     Returns:
         config: 配置字典
     """
+    # 配置字典中添加替换最后一层的标记
+    base_config = {"last_layer_only": kwargs.get("last_layer_only", False)}
+    
     if attn_type == "standard":
-        return get_standard_attention_config()
+        config = get_standard_attention_config()
+        config.update(base_config)
+        return config
     
     elif attn_type == "sparse":
         sparsity = kwargs.get("sparsity", 0.8)
-        return get_sparse_attention_config(sparsity=sparsity)
+        config = get_sparse_attention_config(sparsity=sparsity)
+        config.update(base_config)
+        return config
     
     elif attn_type == "linear":
         kernel_function = kwargs.get("kernel_function", "elu")
-        return get_linear_attention_config(kernel_function=kernel_function)
+        config = get_linear_attention_config(kernel_function=kernel_function)
+        config.update(base_config)
+        return config
     
     elif attn_type == "reformer":
         num_hashes = kwargs.get("num_hashes", 4)
-        return get_reformer_attention_config(num_hashes=num_hashes)
+        config = get_reformer_attention_config(num_hashes=num_hashes)
+        config.update(base_config)
+        return config
     
     elif attn_type == "linformer":
         k_ratio = kwargs.get("k_ratio", 0.25)
-        return get_linformer_attention_config(k_ratio=k_ratio)
+        config = get_linformer_attention_config(k_ratio=k_ratio)
+        config.update(base_config)
+        return config
     
     elif attn_type == "longformer":
         window_size = kwargs.get("window_size", 128)
         global_tokens_ratio = kwargs.get("global_tokens_ratio", 0.1)
-        return get_longformer_attention_config(
+        config = get_longformer_attention_config(
             window_size=window_size,
             global_tokens_ratio=global_tokens_ratio
         )
+        config.update(base_config)
+        return config
     
     elif attn_type == "realformer":
-        return get_realformer_attention_config()
+        config = get_realformer_attention_config()
+        config.update(base_config)
+        return config
+    
+    elif attn_type == "mla":
+        rank_ratio = kwargs.get("rank_ratio", 0.25)
+        config = get_mla_attention_config(rank_ratio=rank_ratio)
+        config.update(base_config)
+        return config
     
     elif attn_type == "low_rank":
         rank_ratio = kwargs.get("rank_ratio")
@@ -90,26 +113,34 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     
     Args:
         model: 原始模型
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"
+        last_layer_only: 是否只替换最后一层注意力，默认为False
         **kwargs: 其他参数
     
     Returns:
         model: 替换后的模型
     """
+    # 获取是否只替换最后一层的参数
+    last_layer_only = kwargs.get("last_layer_only", False)
+    
+    # 如果指定了只替换最后一层，添加到日志
+    if last_layer_only:
+        logger.info(f"注意: 只替换最后一层注意力机制为 {attn_type} 类型")
+    
     if attn_type == "standard":
-        return replace_with_standard_attention(model)
+        return replace_with_standard_attention(model, last_layer_only=last_layer_only)
     
     elif attn_type == "sparse":
         sparsity = kwargs.get("sparsity", 0.8)
-        return replace_with_sparse_attention(model, sparsity=sparsity)
+        return replace_with_sparse_attention(model, sparsity=sparsity, last_layer_only=last_layer_only)
     
     elif attn_type == "linear":
         kernel_function = kwargs.get("kernel_function", "elu")
-        return replace_with_linear_attention(model, kernel_function=kernel_function)
+        return replace_with_linear_attention(model, kernel_function=kernel_function, last_layer_only=last_layer_only)
     
     elif attn_type == "reformer":
         num_hashes = kwargs.get("num_hashes", 4)
-        return replace_with_reformer_attention(model, num_hashes=num_hashes)
+        return replace_with_reformer_attention(model, num_hashes=num_hashes, last_layer_only=last_layer_only)
     
     elif attn_type == "linformer":
         k_ratio = kwargs.get("k_ratio", 0.25)
@@ -117,7 +148,8 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
         return replace_with_linformer_attention(
             model, 
             k_ratio=k_ratio,
-            max_seq_length=max_seq_length
+            max_seq_length=max_seq_length,
+            last_layer_only=last_layer_only
         )
     
     elif attn_type == "longformer":
@@ -126,11 +158,16 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
         return replace_with_longformer_attention(
             model, 
             window_size=window_size,
-            global_tokens_ratio=global_tokens_ratio
+            global_tokens_ratio=global_tokens_ratio,
+            last_layer_only=last_layer_only
         )
     
     elif attn_type == "realformer":
-        return replace_with_realformer_attention(model)
+        return replace_with_realformer_attention(model, last_layer_only=last_layer_only)
+    
+    elif attn_type == "mla":
+        rank_ratio = kwargs.get("rank_ratio", 0.25)
+        return replace_with_mla_attention(model, rank_ratio=rank_ratio, last_layer_only=last_layer_only)
     
     elif attn_type == "low_rank":
         rank_ratio = kwargs.get("rank_ratio")
@@ -177,7 +214,10 @@ def get_attention_info(model, attn_type):
         info["window_size"] = attn_config.get("window_size", 128)
         info["global_tokens_ratio"] = attn_config.get("global_tokens_ratio", 0.1)
     
-    elif attn_type == "low_rank":
-        info["rank_ratio"] = attn_config.get("rank_ratio")
+    elif attn_type == "mla":
+        info["rank_ratio"] = attn_config.get("rank_ratio", 0.25)
+    
+    # 添加是否只替换最后一层的信息
+    info["last_layer_only"] = attn_config.get("last_layer_only", False)
     
     return info 

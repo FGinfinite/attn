@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-def setup_logger(name, log_dir=None, log_level="INFO", log_to_file=True, log_to_console=True):
+def setup_logger(name, log_dir=None, log_level="INFO", log_to_file=True, log_to_console=True, log_file_suffix=""):
     """
     设置日志记录器
     
@@ -17,6 +17,7 @@ def setup_logger(name, log_dir=None, log_level="INFO", log_to_file=True, log_to_
         log_level: 日志级别
         log_to_file: 是否记录到文件
         log_to_console: 是否输出到控制台
+        log_file_suffix: 日志文件名后缀
     
     Returns:
         logger: 日志记录器
@@ -52,7 +53,7 @@ def setup_logger(name, log_dir=None, log_level="INFO", log_to_file=True, log_to_
         
         # 创建日志文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = log_dir / f"{name}_{timestamp}.log"
+        log_file = log_dir / f"{name}{log_file_suffix}_{timestamp}.log"
         
         # 创建文件处理器，指定编码为UTF-8
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
