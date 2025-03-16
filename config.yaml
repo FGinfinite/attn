@@ -2,6 +2,8 @@
 model:
   default_model_path: "Qwen/Qwen2.5-3B-Instruct"
   supported_models:
+    - "Qwen/Qwen2.5-0.5B-Instruct"
+    - "Qwen/Qwen2.5-1.5B-Instruct"
     - "Qwen/Qwen2.5-3B-Instruct"
     - "Qwen/Qwen2.5-7B-Instruct"
 
@@ -39,6 +41,7 @@ attention:
     - "linformer"
     - "longformer"
     - "realformer"
+    - "low_rank"
   sparse:
     default_sparsity: 0.8
     sparsity_range:
@@ -67,6 +70,11 @@ attention:
       - 64
       - 256
     default_global_tokens_ratio: 0.1
+  low_rank:
+    default_rank_ratio: 0.1
+    rank_ratio_range:
+      - 0.05
+      - 0.5
 
 # 基准测试配置
 benchmark:

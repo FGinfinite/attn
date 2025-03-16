@@ -48,6 +48,8 @@ def parse_args():
                         help="Longformer注意力的窗口大小")
     parser.add_argument("--global_tokens_ratio", type=float, default=0.1,
                         help="Longformer注意力的全局token比例")
+    parser.add_argument("--rank_ratio", type=float, default=0.5,
+                        help="低秩分解注意力的秩比例")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="批处理大小")
     parser.add_argument("--input_length", type=int, default=512,
@@ -143,6 +145,8 @@ def main():
             elif args.attention == "longformer":
                 kwargs["window_size"] = args.window_size
                 kwargs["global_tokens_ratio"] = args.global_tokens_ratio
+            elif args.attention == "low_rank":
+                kwargs["rank_ratio"] = args.rank_ratio
             
             model = replace_attention_mechanism(model, args.attention, **kwargs)
         

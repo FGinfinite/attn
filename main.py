@@ -39,13 +39,14 @@ def parse_args():
     # 测试注意力机制命令
     attn_parser = subparsers.add_parser("test_attention", help="测试注意力机制")
     attn_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
+    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"], default="standard", help="注意力机制类型")
     attn_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
     attn_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
     attn_parser.add_argument("--num_hashes", type=int, default=4, help="Reformer注意力的哈希数")
     attn_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
     attn_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     attn_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
+    attn_parser.add_argument("--rank_ratio", type=float, default=0.5, help="低秩分解注意力的秩比例")
     attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     attn_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
@@ -74,7 +75,7 @@ def parse_args():
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
     bench_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     bench_parser.add_argument("--quant", type=str, choices=["none", "awq", "gptq", "fp16", "bf16"], default="none", help="量化方法")
-    bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
+    bench_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"], default="standard", help="注意力机制类型")
     bench_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
     bench_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
     bench_parser.add_argument("--output_length", type=int, default=128, help="输出长度")
@@ -84,6 +85,7 @@ def parse_args():
     bench_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
     bench_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
+    bench_parser.add_argument("--rank_ratio", type=float, default=0.1, help="低秩分解注意力的秩比例")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     bench_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
@@ -93,7 +95,7 @@ def parse_args():
     auto_parser = subparsers.add_parser("auto_test", help="运行自动化测试")
     auto_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
     auto_parser.add_argument("--quant_types", type=str, default="none,awq,gptq", help="量化方法列表，用逗号分隔")
-    auto_parser.add_argument("--attention_types", type=str, default="standard,sparse,linear,reformer,linformer,longformer,realformer", help="注意力机制类型列表，用逗号分隔")
+    auto_parser.add_argument("--attention_types", type=str, default="standard,sparse,linear,reformer,linformer,longformer,realformer,low_rank", help="注意力机制类型列表，用逗号分隔")
     auto_parser.add_argument("--batch_sizes", type=str, default="1", help="批处理大小列表，用逗号分隔")
     auto_parser.add_argument("--input_lengths", type=str, default="512,1024,2048", help="输入长度列表，用逗号分隔")
     auto_parser.add_argument("--output_lengths", type=str, default="128", help="输出长度列表，用逗号分隔")
@@ -121,7 +123,7 @@ def parse_args():
     # 测试FLOPs命令
     test_flops_parser = subparsers.add_parser("test_flops", help="测试FLOPs分析功能")
     test_flops_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    test_flops_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard", help="注意力机制类型")
+    test_flops_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"], default="standard", help="注意力机制类型")
     test_flops_parser.add_argument("--input_length", type=int, default=512, help="输入长度")
     test_flops_parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
     test_flops_parser.add_argument("--output_length", type=int, default=128, help="输出长度")
@@ -182,7 +184,8 @@ def main():
             "--num_hashes", str(args.num_hashes),
             "--k_ratio", str(args.k_ratio),
             "--window_size", str(args.window_size),
-            "--global_tokens_ratio", str(args.global_tokens_ratio)
+            "--global_tokens_ratio", str(args.global_tokens_ratio),
+            "--rank_ratio", str(args.rank_ratio)
         ]
         if args.monitor:
             sys.argv.append("--monitor")

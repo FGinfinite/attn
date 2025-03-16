@@ -2,8 +2,6 @@
 /data
 /logs
 /Qwen
-/Qwen2.5-3B-Instruct-bf16
-/Qwen2.5-3B-Instruct-fp16
 /__pycache__
 *.pyc
 .history/
@@ -15,3 +13,5 @@ src/benchmark/__pycache__/benchmark_utils.cpython-312.pyc
 src/quantization/__pycache__/quant_utils.cpython-312.pyc
 src/utils/__pycache__/hardware_monitor.cpython-312.pyc
 **/__pycache__
+.idea/
+

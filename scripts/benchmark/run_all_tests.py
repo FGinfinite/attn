@@ -23,7 +23,7 @@ def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="自动化测试脚本")
     
-    parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct",
+    parser.add_argument("--model_path", type=str,
                         help="模型路径或名称")
     parser.add_argument("--quant_types", type=str, default="none,awq,gptq,fp16,bf16",
                         help="量化方式列表，用逗号分隔")

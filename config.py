@@ -33,6 +33,11 @@ GPTQ_CONFIG = CONFIG["quantization"]["gptq"]
 SUPPORTED_ATTENTION_TYPES = CONFIG["attention"]["supported_types"]
 SPARSE_ATTENTION_CONFIG = CONFIG["attention"]["sparse"]
 LINEAR_ATTENTION_CONFIG = CONFIG["attention"]["linear"]
+REFORMER_ATTENTION_CONFIG = CONFIG["attention"].get("reformer", {})
+LINFORMER_ATTENTION_CONFIG = CONFIG["attention"].get("linformer", {})
+LONGFORMER_ATTENTION_CONFIG = CONFIG["attention"].get("longformer", {})
+REALFORMER_ATTENTION_CONFIG = CONFIG["attention"].get("realformer", {})
+LOW_RANK_ATTENTION_CONFIG = CONFIG["attention"].get("low_rank", {})
 
 # 基准测试配置
 DEFAULT_BATCH_SIZE = CONFIG["benchmark"]["default_batch_size"]
@@ -106,6 +111,26 @@ ATTENTION_CONFIG = {
         "name": "Longformer",
         "description": "适配Qwen2的RoPE位置编码实现滑动窗口注意力",
         "window_size": 512,
+    },
+    "reformer": {
+        "name": "Reformer",
+        "description": "使用LSH哈希实现局部敏感注意力",
+        "num_hashes": 4,
+    },
+    "linformer": {
+        "name": "Linformer",
+        "description": "使用低秩投影降低序列长度维度的复杂度",
+        "k_ratio": 0.25,
+        "max_seq_length": 512,
+    },
+    "realformer": {
+        "name": "RealFormer",
+        "description": "使用残差连接累积注意力分数",
+    },
+    "low_rank": {
+        "name": "低秩分解注意力",
+        "description": "使用SVD分解权重矩阵为两个低秩子矩阵的乘积",
+        "rank_ratio": 0.5,  # 低秩比例，表示保留的奇异值比例
     },
 }
 

@@ -31,12 +31,24 @@ def parse_args():
                         help="稀疏注意力的稀疏度")
     parser.add_argument("--kernel_function", type=str, default="elu",
                         help="线性注意力的核函数")
+    parser.add_argument("--num_hashes", type=int, default=4,
+                        help="Reformer注意力的哈希数")
+    parser.add_argument("--k_ratio", type=float, default=0.25,
+                        help="Linformer注意力的k比例")
+    parser.add_argument("--window_size", type=int, default=128,
+                        help="Longformer注意力的窗口大小")
+    parser.add_argument("--global_tokens_ratio", type=float, default=0.1,
+                        help="Longformer注意力的全局token比例")
+    parser.add_argument("--rank_ratio", type=float, default=0.5,
+                        help="低秩分解注意力的秩比例")
     parser.add_argument("--prompt", type=str, default="你好，请介绍一下自己。",
                         help="测试提示词")
     parser.add_argument("--max_new_tokens", type=int, default=50,
                         help="生成的最大token数量")
     parser.add_argument("--monitor", action="store_true",
                         help="是否监控硬件使用情况")
+    parser.add_argument("--flops_profiler", action="store_true",
+                        help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
     return parser.parse_args()
 
@@ -77,6 +89,15 @@ def main():
             kwargs["sparsity"] = args.sparsity
         elif args.attention == "linear":
             kwargs["kernel_function"] = args.kernel_function
+        elif args.attention == "reformer":
+            kwargs["num_hashes"] = args.num_hashes
+        elif args.attention == "linformer":
+            kwargs["k_ratio"] = args.k_ratio
+        elif args.attention == "longformer":
+            kwargs["window_size"] = args.window_size
+            kwargs["global_tokens_ratio"] = args.global_tokens_ratio
+        elif args.attention == "low_rank":
+            kwargs["rank_ratio"] = args.rank_ratio
         
         model = replace_attention_mechanism(model, args.attention, **kwargs)
         

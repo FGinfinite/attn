@@ -31,13 +31,17 @@ from src.attention.longformer_attention import (
 from src.attention.realformer_attention import (
     get_realformer_attention_config, replace_with_realformer_attention
 )
+# 导入低秩分解注意力机制
+from src.attention.low_rank_attention import (
+    get_low_rank_attention_config, replace_with_low_rank_attention
+)
 
 def get_attention_config(attn_type, **kwargs):
     """
     获取注意力机制配置
     
     Args:
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"
         **kwargs: 其他参数
     
     Returns:
@@ -73,6 +77,10 @@ def get_attention_config(attn_type, **kwargs):
     elif attn_type == "realformer":
         return get_realformer_attention_config()
     
+    elif attn_type == "low_rank":
+        rank_ratio = kwargs.get("rank_ratio")
+        return get_low_rank_attention_config(rank_ratio=rank_ratio)
+    
     else:
         raise ValueError(f"不支持的注意力机制类型: {attn_type}")
 
@@ -82,7 +90,7 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     
     Args:
         model: 原始模型
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"
         **kwargs: 其他参数
     
     Returns:
@@ -124,6 +132,10 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     elif attn_type == "realformer":
         return replace_with_realformer_attention(model)
     
+    elif attn_type == "low_rank":
+        rank_ratio = kwargs.get("rank_ratio")
+        return replace_with_low_rank_attention(model, rank_ratio=rank_ratio)
+    
     else:
         raise ValueError(f"不支持的注意力机制类型: {attn_type}")
 
@@ -164,5 +176,8 @@ def get_attention_info(model, attn_type):
     elif attn_type == "longformer":
         info["window_size"] = attn_config.get("window_size", 128)
         info["global_tokens_ratio"] = attn_config.get("global_tokens_ratio", 0.1)
+    
+    elif attn_type == "low_rank":
+        info["rank_ratio"] = attn_config.get("rank_ratio")
     
     return info 

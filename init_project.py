@@ -68,7 +68,7 @@ def create_config_file():
     config = {
         "model": {
             "default_model_path": "Qwen/Qwen2.5-3B-Instruct",
-            "supported_models": ["Qwen/Qwen2.5-3B-Instruct", "Qwen/Qwen2.5-7B-Instruct"]
+            "supported_models": ["Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "Qwen/Qwen2.5-3B-Instruct", "Qwen/Qwen2.5-7B-Instruct"]
         },
         "quantization": {
             "supported_types": ["none", "awq", "gptq"],

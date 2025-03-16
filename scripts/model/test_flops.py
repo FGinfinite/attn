@@ -30,7 +30,7 @@ def parse_args():
     
     parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL_PATH,
                         help="模型路径或名称")
-    parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer"], default="standard",
+    parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"], default="standard",
                         help="注意力机制类型")
     parser.add_argument("--input_length", type=int, default=512,
                         help="输入长度")
@@ -112,6 +112,8 @@ def main():
             elif args.attention == "longformer":
                 kwargs["window_size"] = 128
                 kwargs["global_tokens_ratio"] = 0.1
+            elif args.attention == "low_rank":
+                kwargs["rank_ratio"] = 0.5
             
             model = replace_attention_mechanism(model, args.attention, **kwargs)
         

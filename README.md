@@ -110,7 +110,7 @@ python main.py auto_test --model_path Qwen/Qwen2.5-3B-Instruct --quant_types fp1
 ### 7. Analyze Results
 
 ```bash
-python main.py analyze --results_dir data/results --output_dir analysis --metrics latency,tokens_per_second,memory_usage,perplexity
+python main.py analyze --results_dir data/results --output_dir analysis
 ```
 
 ## Notes
