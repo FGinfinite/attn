@@ -329,7 +329,7 @@ def main():
         finetune_main()
     
     elif args.command == "benchmark":
-        from scripts.benchmark.benchmark import main as benchmark_main
+        from scripts.benchmark.run_benchmark import main as benchmark_main
         sys.argv = [sys.argv[0]] + [
             "--model_path", args.model_path,
             "--quant", args.quant,

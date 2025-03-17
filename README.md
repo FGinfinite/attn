@@ -63,7 +63,7 @@ The project provides a unified command-line interface through the `main.py` scri
 ### 1. Verify Model
 
 ```bash
-python main.py verify --model_path Qwen/Qwen2.5-3B-Instruct --monitor
+python main.py verify --model_path Qwen/Qwen2.5-0.5B-Instruct --monitor
 ```
 
 ### 2. Quantize Model
