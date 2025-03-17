@@ -15,3 +15,5 @@ src/utils/__pycache__/hardware_monitor.cpython-312.pyc
 **/__pycache__
 .idea/
 
+# 一些工具
+chsrc
