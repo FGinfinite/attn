@@ -16,7 +16,7 @@ SERVERS=(
     "192.168.1.110"
 )
 
-# 目标目录
+# 默认目标目录
 TARGET_DIR="~/attn"
 
 # 打印带颜色的消息函数
@@ -33,10 +33,11 @@ show_help() {
     echo "自动同步多个服务器的代码仓库"
     echo
     echo "选项:"
-    echo "  -h, --help     显示帮助信息"
+    echo "  -h, --help         显示帮助信息"
     echo "  -i, --interactive  交互模式，遇到冲突时提供手动处理选项"
-    echo "  -f, --force    强制模式，使用git reset --hard origin/main解决冲突"
+    echo "  -f, --force        强制模式，使用git reset --hard origin/main解决冲突"
     echo "  -s, --server SERVER  指定单个服务器进行同步"
+    echo "  -d, --dir TARGET_DIR  指定目标目录，默认为 ~/attn"
     echo
 }
 
@@ -64,6 +65,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -s|--server)
             SPECIFIC_SERVER="$2"
+            shift
+            shift
+            ;;
+        -d|--dir)
+            TARGET_DIR="$2"
             shift
             shift
             ;;
@@ -167,4 +173,4 @@ main() {
 }
 
 # 执行主函数
-main 
+main
