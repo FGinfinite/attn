@@ -17,3 +17,7 @@ src/utils/__pycache__/hardware_monitor.cpython-312.pyc
 
 # 一些工具
 chsrc
+
+# 一些二进制大文件
+raw/
+*.log
