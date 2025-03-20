@@ -171,7 +171,7 @@ class LongformerAttention(nn.Module):
         
         return outputs
 
-def replace_with_longformer_attention(model, window_size=128, global_tokens_ratio=0.1, last_layer_only=False):
+def replace_with_longformer_attention(model, window_size=128, global_tokens_ratio=0.1):
     """
     将模型的注意力机制替换为Longformer注意力机制
     
@@ -179,7 +179,6 @@ def replace_with_longformer_attention(model, window_size=128, global_tokens_rati
         model: 原始模型
         window_size: 局部注意力窗口大小
         global_tokens_ratio: 全局token比例，计算全局token的数量
-        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
         model: 替换后的模型

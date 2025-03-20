@@ -67,8 +67,6 @@ class CustomQwen2Attention(nn.Module):
         self.v_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * self.head_dim, bias=True)
         self.o_proj = nn.Linear(config.num_attention_heads * self.head_dim, config.hidden_size, bias=False)
         
-        # 记录替换日志
-        logger.info(f"第 {layer_idx} 层使用自定义注意力机制（噪声水平={self.noise_level}）")
     
     def forward(
         self,
@@ -83,8 +81,6 @@ class CustomQwen2Attention(nn.Module):
         前向传播
         与原始Qwen2Attention一致，但添加随机扰动
         """
-        # 记录日志以验证该层是否被替换成功
-        logger.info(f"自定义注意力层 {self.layer_idx} 被调用")
         
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
@@ -150,32 +146,25 @@ class CustomQwen2Attention(nn.Module):
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
         
-        # 记录额外日志以确认这个函数被调用
-        logger.info(f"自定义注意力层 {self.layer_idx} 完成计算")
-        
         return attn_output, attn_weights
 
-def replace_with_custom_attention(model, noise_level=0.01, last_layer_only=False):
+def replace_with_custom_attention(model, noise_level=0.01):
     """
     将模型的注意力机制替换为自定义注意力机制
     
     Args:
         model: 原始模型
         noise_level: 随机噪声水平，默认为0.01
-        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
         model: 替换后的模型
     """
-    logger.info(f"使用自定义注意力机制(噪声水平={noise_level})")
     
     # 递归查找并替换所有的Qwen2Attention模块
     replace_count = 0
     for name, module in model.named_modules():
         if hasattr(module, 'self_attn') and hasattr(module.self_attn, '__class__') and module.self_attn.__class__.__name__ == 'Qwen2Attention':
-            if last_layer_only and not name.endswith('layers.-1'):
-                continue
-                
+
             # 获取原有参数
             old_attn = module.self_attn
             layer_idx = old_attn.layer_idx
@@ -184,7 +173,7 @@ def replace_with_custom_attention(model, noise_level=0.01, last_layer_only=False
             orig_device = old_attn.q_proj.weight.device
             orig_dtype = old_attn.q_proj.weight.dtype
             
-            logger.info(f"原始注意力层 {name} 的设备: {orig_device}, 数据类型: {orig_dtype}")
+
             
             # 创建新的注意力层
             new_attn = CustomQwen2Attention(
@@ -214,7 +203,7 @@ def replace_with_custom_attention(model, noise_level=0.01, last_layer_only=False
             module.self_attn = new_attn
             replace_count += 1
             
-            logger.info(f"替换注意力层: {name}，保持设备: {orig_device}，数据类型: {orig_dtype}")
+
     
     if replace_count == 0:
         logger.warning("没有找到任何Qwen2Attention层！替换失败！")

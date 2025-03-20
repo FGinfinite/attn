@@ -47,7 +47,6 @@ def parse_args():
     attn_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     attn_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     attn_parser.add_argument("--rank_ratio", type=float, default=0.5, help="低秩分解注意力的秩比例")
-    attn_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     attn_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     attn_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     
@@ -79,7 +78,6 @@ def parse_args():
     finetune_parser.add_argument("--k_ratio", type=float, default=0.25, help="Linformer注意力的k比例")
     finetune_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     finetune_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
-    finetune_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     
     # 运行基准测试命令
     bench_parser = subparsers.add_parser("benchmark", help="运行基准测试")
@@ -96,7 +94,6 @@ def parse_args():
     bench_parser.add_argument("--window_size", type=int, default=128, help="Longformer注意力的窗口大小")
     bench_parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Longformer注意力的全局token比例")
     bench_parser.add_argument("--rank_ratio", type=float, default=0.1, help="低秩分解注意力的秩比例")
-    bench_parser.add_argument("--last_layer_only", action="store_true", help="是否只替换最后一层注意力")
     bench_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     bench_parser.add_argument("--flops_profiler", action="store_true", help="是否使用DeepSpeed的Flops Profiler分析FLOPs")
     bench_parser.add_argument("--save_results", action="store_true", help="是否保存结果")
@@ -215,8 +212,6 @@ def main():
             "--global_tokens_ratio", str(args.global_tokens_ratio),
             "--rank_ratio", str(args.rank_ratio)
         ]
-        if args.last_layer_only:
-            sys.argv.append("--last_layer_only")
         if args.monitor:
             sys.argv.append("--monitor")
         if args.flops_profiler:
@@ -248,9 +243,6 @@ def main():
         elif args.attention == "longformer":
             log_prefix += f"_w{args.window_size}_g{args.global_tokens_ratio}"
         
-        # 如果只替换最后一层，在日志前缀中添加标记
-        if args.last_layer_only:
-            log_prefix += "_lastlayer"
         
         # 设置输出目录，添加注意力类型
         output_dir = f"{args.output_dir}_{args.attention}"
@@ -268,9 +260,6 @@ def main():
             elif args.attention == "longformer":
                 output_dir_suffix = f"_w{args.window_size}_g{args.global_tokens_ratio}"
             
-            # 如果只替换最后一层，在输出目录中添加标记
-            if args.last_layer_only:
-                output_dir_suffix += "_lastlayer"
             
             output_dir += output_dir_suffix
             
@@ -291,8 +280,6 @@ def main():
                 "--global_tokens_ratio", str(args.global_tokens_ratio)
             ]
             
-            if args.last_layer_only:
-                sys.argv.append("--last_layer_only")
         else:
             sys.argv = [sys.argv[0]] + [
                 "--model_path", args.model_path,
@@ -345,8 +332,6 @@ def main():
             "--global_tokens_ratio", str(args.global_tokens_ratio)
         ]
         
-        if args.last_layer_only:
-            sys.argv.append("--last_layer_only")
         if args.monitor:
             sys.argv.append("--monitor")
         if args.flops_profiler:

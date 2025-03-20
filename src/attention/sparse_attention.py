@@ -27,20 +27,18 @@ def get_sparse_attention_config(sparsity=0.8):
         "sparsity": sparsity
     }
 
-def replace_with_sparse_attention(model, sparsity=0.8, last_layer_only=False):
+def replace_with_sparse_attention(model, sparsity=0.8):
     """
     将模型的最后一层注意力机制替换为稀疏注意力机制
     
     Args:
         model: 原始模型
         sparsity: 稀疏度，表示保留的注意力比例
-        last_layer_only: 是否只替换最后一层注意力，默认为False（当前实现已固定为只替换最后一层）
     
     Returns:
         model: 替换后的模型
     """
     logger.info(f"使用稀疏注意力机制，稀疏度: {sparsity}")
-    logger.info(f"注意：只替换最后一层注意力机制")
     replaced_count = 0
     
     # Qwen2.5特定的注意力层名称模式

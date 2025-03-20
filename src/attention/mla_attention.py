@@ -31,14 +31,13 @@ def get_mla_attention_config(rank_ratio=0.25):
         "rank_ratio": rank_ratio
     }
 
-def replace_with_mla_attention(model, rank_ratio=0.25, last_layer_only=False):
+def replace_with_mla_attention(model, rank_ratio=0.25):
     """
     将模型的注意力机制替换为多层注意力（MLA）
     
     Args:
         model: 原始模型
         rank_ratio: 低秩比例，用于确定低秩矩阵的维度
-        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
         model: 替换后的模型

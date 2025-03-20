@@ -956,7 +956,6 @@ def main():
     parser.add_argument("--k_ratio", type=float, default=0.25, help="K ratio for Linformer attention")
     parser.add_argument("--window_size", type=int, default=128, help="Window size for Longformer attention")
     parser.add_argument("--global_tokens_ratio", type=float, default=0.1, help="Global tokens ratio for Longformer attention")
-    parser.add_argument("--last_layer_only", action="store_true", help="Whether to replace only the last attention layer")
     args = parser.parse_args()
     
     # Set random seed
@@ -1017,10 +1016,6 @@ def main():
         
         # 在LoRA之后替换注意力机制（如果指定）
         if args.attention != "standard":
-            if args.last_layer_only:
-                logger.info(f"Replacing only the last layer attention with {args.attention} attention")
-            else:
-                logger.info(f"Replacing all standard attention layers with {args.attention} attention")
                 
             attention_kwargs = {}
             if args.attention == "sparse":
@@ -1035,8 +1030,6 @@ def main():
                 attention_kwargs["window_size"] = args.window_size
                 attention_kwargs["global_tokens_ratio"] = args.global_tokens_ratio
             
-            # 添加last_layer_only参数
-            attention_kwargs["last_layer_only"] = args.last_layer_only
             
             # 替换模型中的注意力层
             model = replace_attention_mechanism(model, args.attention, **attention_kwargs)

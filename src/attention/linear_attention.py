@@ -27,21 +27,18 @@ def get_linear_attention_config(kernel_function="elu"):
         "kernel_function": kernel_function
     }
 
-def replace_with_linear_attention(model, kernel_function="elu", last_layer_only=False):
+def replace_with_linear_attention(model, kernel_function="elu"):
     """
     将模型的注意力机制替换为线性注意力机制
     
     Args:
         model: 原始模型
         kernel_function: 核函数，可选值为"elu", "relu", "softmax"
-        last_layer_only: 是否只替换最后一层注意力，默认为False
     
     Returns:
         model: 替换后的模型
     """
     logger.info(f"使用线性注意力机制，核函数: {kernel_function}")
-    if last_layer_only:
-        logger.info(f"注意：只替换最后一层注意力机制")
     
     # 定义核函数
     def apply_kernel(x, kernel_type):
@@ -66,16 +63,8 @@ def replace_with_linear_attention(model, kernel_function="elu", last_layer_only=
         logger.warning("未找到任何符合条件的注意力模块!")
         return model
     
-    # 确定要替换的模块
-    if last_layer_only and attention_modules:
-        # 只处理最后一个注意力模块
-        modules_to_replace = [attention_modules[-1]]
-        name, _ = modules_to_replace[0]
-        logger.info(f"将替换最后一层注意力模块: {name}")
-    else:
-        # 处理所有注意力模块
-        modules_to_replace = attention_modules
-        logger.info(f"将替换所有 {len(modules_to_replace)} 个注意力模块")
+    modules_to_replace = attention_modules
+    logger.info(f"将替换所有 {len(modules_to_replace)} 个注意力模块")
     
     # 替换选定的模块
     replaced_count = 0
@@ -137,11 +126,8 @@ def replace_with_linear_attention(model, kernel_function="elu", last_layer_only=
         except Exception as e:
             logger.warning(f"替换模块 {name} 失败: {str(e)}")
     
-    if replaced_count > 0:
-        if last_layer_only:
-            logger.info(f"已成功替换最后一层注意力模块")
-        else:
-            logger.info(f"已成功替换 {replaced_count} 个注意力模块")
+
+        logger.info(f"已成功替换 {replaced_count} 个注意力模块")
     else:
         logger.warning("未能替换任何注意力模块!")
     
