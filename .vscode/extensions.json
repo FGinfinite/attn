@@ -1,8 +1,12 @@
 {
-    "recommendations": [
-      "ms-python.python",
-      "ms-python.vscode-pylance",
-      "charliermarsh.ruff",
-      "prasadgk.pythoncodelens"
-    ]
-  }
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "prasadgk.pythoncodelens",
+    "shalldie.background",
+    "subframe7536.theme-maple",
+    "ms-python.debugpy",
+    "kevinrose.vsc-python-indent"
+  ]
+}
