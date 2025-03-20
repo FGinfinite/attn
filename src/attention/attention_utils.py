@@ -4,7 +4,8 @@
 
 import torch
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Union, Type
+import inspect
 
 logger = logging.getLogger("attn_experiment")
 
@@ -35,13 +36,17 @@ from src.attention.realformer_attention import (
 from src.attention.mla_attention import (
     get_mla_attention_config, replace_with_mla_attention
 )
+# 导入自定义注意力机制（用于测试）
+from src.attention.custom_attention import (
+    get_custom_attention_config, replace_with_custom_attention
+)
 
 def get_attention_config(attn_type, **kwargs):
     """
     获取注意力机制配置
     
     Args:
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla", "custom"
         **kwargs: 其他参数
     
     Returns:
@@ -100,6 +105,12 @@ def get_attention_config(attn_type, **kwargs):
         config.update(base_config)
         return config
     
+    elif attn_type == "custom":
+        noise_level = kwargs.get("noise_level", 0.01)
+        config = get_custom_attention_config(noise_level=noise_level)
+        config.update(base_config)
+        return config
+    
     elif attn_type == "low_rank":
         rank_ratio = kwargs.get("rank_ratio")
         return get_low_rank_attention_config(rank_ratio=rank_ratio)
@@ -109,11 +120,11 @@ def get_attention_config(attn_type, **kwargs):
 
 def replace_attention_mechanism(model, attn_type, **kwargs):
     """
-    替换模型的注意力机制
+    替换模型的注意力机制 - 针对Qwen2模型优化的版本
     
     Args:
         model: 原始模型
-        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla"
+        attn_type: 注意力机制类型，可选值为"standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "mla", "custom"
         last_layer_only: 是否只替换最后一层注意力，默认为False
         **kwargs: 其他参数
     
@@ -127,8 +138,37 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     if last_layer_only:
         logger.info(f"注意: 只替换最后一层注意力机制为 {attn_type} 类型")
     
+    # 检查模型是否包含Qwen2Attention层
+    has_qwen2_attention = False
+    for name, module in model.named_modules():
+        if hasattr(module, 'self_attn') and hasattr(module.self_attn, '__class__') and module.self_attn.__class__.__name__ == 'Qwen2Attention':
+            has_qwen2_attention = True
+            break
+    
+    if has_qwen2_attention:
+        logger.info("检测到Qwen2模型，使用针对Qwen2的注意力替换方法")
+        return replace_qwen2_attention_mechanism(model, attn_type, **kwargs)
+    else:
+        logger.info("未检测到Qwen2模型，使用通用注意力替换方法")
+        return replace_general_attention_mechanism(model, attn_type, **kwargs)
+
+def replace_qwen2_attention_mechanism(model, attn_type, **kwargs):
+    """
+    专门针对Qwen2模型的注意力机制替换方法
+    
+    Args:
+        model: 原始模型
+        attn_type: 注意力机制类型
+        **kwargs: 其他参数
+    
+    Returns:
+        model: 替换后的模型
+    """
+    
     if attn_type == "standard":
-        return replace_with_standard_attention(model, last_layer_only=last_layer_only)
+        # 标准注意力不需要替换
+        logger.info("使用标准注意力机制（原生实现）")
+        return model
     
     elif attn_type == "sparse":
         sparsity = kwargs.get("sparsity", 0.8)
@@ -168,6 +208,11 @@ def replace_attention_mechanism(model, attn_type, **kwargs):
     elif attn_type == "mla":
         rank_ratio = kwargs.get("rank_ratio", 0.25)
         return replace_with_mla_attention(model, rank_ratio=rank_ratio, last_layer_only=last_layer_only)
+    
+    elif attn_type == "custom":
+        # noise_level = kwargs.get("noise_level", 0.01)
+        noise_level = 0.5
+        return replace_with_custom_attention(model, noise_level=noise_level, last_layer_only=last_layer_only)
     
     elif attn_type == "low_rank":
         rank_ratio = kwargs.get("rank_ratio")
@@ -217,7 +262,25 @@ def get_attention_info(model, attn_type):
     elif attn_type == "mla":
         info["rank_ratio"] = attn_config.get("rank_ratio", 0.25)
     
+    elif attn_type == "custom":
+        info["noise_level"] = attn_config.get("noise_level", 0.01)
+    
     # 添加是否只替换最后一层的信息
     info["last_layer_only"] = attn_config.get("last_layer_only", False)
     
-    return info 
+    return info
+
+def is_qwen2_model(model):
+    """
+    检查模型是否为Qwen2模型
+    
+    Args:
+        model: 待检查的模型
+    
+    Returns:
+        bool: 是否为Qwen2模型
+    """
+    for name, module in model.named_modules():
+        if hasattr(module, 'self_attn') and hasattr(module.self_attn, '__class__') and module.self_attn.__class__.__name__ == 'Qwen2Attention':
+            return True
+    return False 

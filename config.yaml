@@ -43,6 +43,7 @@ attention:
     - "realformer"
     - "mla"
     - "low_rank"
+    - "custom"
   sparse:
     default_sparsity: 0.8
     sparsity_range:

@@ -39,7 +39,7 @@ def parse_args():
     # 测试注意力机制命令
     attn_parser = subparsers.add_parser("test_attention", help="测试注意力机制")
     attn_parser.add_argument("--model_path", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="模型路径")
-    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank"], default="standard", help="注意力机制类型")
+    attn_parser.add_argument("--attention", type=str, choices=["standard", "sparse", "linear", "reformer", "linformer", "longformer", "realformer", "low_rank", "custom"], default="standard", help="注意力机制类型")
     attn_parser.add_argument("--sparsity", type=float, default=0.8, help="稀疏注意力的稀疏度")
     attn_parser.add_argument("--kernel_function", type=str, default="elu", help="线性注意力的核函数")
     attn_parser.add_argument("--num_hashes", type=int, default=4, help="Reformer注意力的哈希数")
