@@ -139,6 +139,18 @@ def parse_args():
     test_flops_parser.add_argument("--dynamic", action="store_true", help="是否进行动态FLOPs分析")
     test_flops_parser.add_argument("--monitor", action="store_true", help="是否监控硬件使用情况")
     
+    # 预训练命令
+    pretrain_parser = subparsers.add_parser("pretrain", help="预训练模型")
+    pretrain_parser.add_argument("--model_path", type=str, default="raw/Qwen/Qwen2.5-0.5B-Instruct", help="模型路径")
+    pretrain_parser.add_argument("--dataset_path", type=str, default="raw/cmrc2018/squad-style-data/cmrc2018_train.json", help="数据集路径")
+    pretrain_parser.add_argument("--output_dir", type=str, default="models/pretrained", help="预训练模型输出目录")
+    pretrain_parser.add_argument("--max_updates", type=int, default=10000, help="最大更新次数")
+    pretrain_parser.add_argument("--batch_size", type=int, default=1, help="批次大小")
+    pretrain_parser.add_argument("--learning_rate", type=float, default=5e-5, help="学习率")
+    pretrain_parser.add_argument("--max_length", type=int, default=512, help="最大序列长度")
+    pretrain_parser.add_argument("--precision", type=str, choices=["fp16", "bf16", "fp32"], default="fp16", help="计算精度")
+    pretrain_parser.add_argument("--gpu_id", type=int, default=None, help="使用的GPU ID")
+    
     # 初始化项目命令
     init_parser = subparsers.add_parser("init", help="初始化项目")
     init_parser.add_argument("--force", action="store_true", help="强制重新初始化项目")
@@ -401,6 +413,22 @@ def main():
         if args.monitor:
             sys.argv.append("--monitor")
         test_flops_main()
+    
+    elif args.command == "pretrain":
+        from scripts.model.pretrain_model import main as pretrain_main
+        sys.argv = [sys.argv[0]] + [
+            "--model_path", args.model_path,
+            "--dataset_path", args.dataset_path,
+            "--output_dir", args.output_dir,
+            "--max_updates", str(args.max_updates),
+            "--batch_size", str(args.batch_size),
+            "--learning_rate", str(args.learning_rate),
+            "--max_length", str(args.max_length),
+            "--precision", args.precision
+        ]
+        if args.gpu_id is not None:
+            sys.argv.extend(["--gpu_id", str(args.gpu_id)])
+        pretrain_main()
     
     elif args.command == "init":
         from init_project import main as init_main
